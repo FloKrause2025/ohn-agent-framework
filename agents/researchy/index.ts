@@ -11,6 +11,8 @@
  * - Memory block improved — rejection reasons included so agent learns patterns.
  */
 
+import type { RequestLogger } from "../../ui/logger.js";
+
 // ─── LLM Types (shared shape with other agents) ───────────────────────────────
 
 export interface LLMMessage {
@@ -119,6 +121,8 @@ export interface ResearchyDeps {
   invokeLLM: (params: LLMInvokeParams) => Promise<LLMResponse>;
   /** Optional — omit to skip memory injection (e.g. first run or testing) */
   db?: ResearchyDb;
+  /** Optional — attach to get a full pipeline trace */
+  logger?: RequestLogger;
 }
 
 // ─── Memory Block Builder ─────────────────────────────────────────────────────
@@ -346,9 +350,14 @@ export async function runResearchy(
   deps: ResearchyDeps
 ): Promise<ResearchyResult> {
   const { posts, timeWindow = "24 hours", scannedAt = new Date().toISOString(), kbContent } = params;
+  const log = deps.logger;
+
+  log?.info("researchy", `Starting filter — ${posts.length} posts received, timeWindow: ${timeWindow}`);
 
   const memoryBlock = await buildMemoryBlock(deps.db);
   const systemPrompt = buildSystemPrompt(memoryBlock, kbContent);
+
+  log?.debug("researchy", "System prompt", { systemPrompt });
 
   const postsText = posts.slice(0, 50).map((p, i) =>
     [
@@ -372,6 +381,9 @@ Apply your 7-step filter and return the shortlist. Return ONLY valid JSON matchi
 
 ${postsText}`;
 
+  log?.debug("researchy", "User message sent to LLM", { userMessage });
+  log?.info("researchy", `Calling LLM (claude-haiku-4-5) with ${posts.slice(0, 50).length} posts`);
+
   const response = await deps.invokeLLM({
     model: "claude-haiku-4-5-20251001",
     messages: [
@@ -389,11 +401,14 @@ ${postsText}`;
   });
 
   const raw = response.choices[0]?.message?.content ?? "{}";
+  log?.debug("researchy", "Raw LLM response", { raw });
 
   try {
-    return JSON.parse(raw) as ResearchyResult;
-  } catch {
-    // Fallback: return empty result rather than throwing
+    const parsed = JSON.parse(raw) as ResearchyResult;
+    log?.info("researchy", `Parse OK — shortlist: ${parsed.shortlist?.length ?? 0}, excluded: ${parsed.excluded?.length ?? 0}`);
+    return parsed;
+  } catch (err) {
+    log?.error("researchy", "JSON parse failed", { raw, err: String(err) });
     return {
       meta: {
         scrapedAt: scannedAt,

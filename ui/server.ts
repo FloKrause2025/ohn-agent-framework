@@ -16,6 +16,7 @@ import type { RedditPost, LLMInvokeParams } from "../agents/researchy/index.js";
 // RedditPost used for mapping below; LLMInvokeParams used by makeInvokeLLM
 import { fetchRedditScamPosts } from "../skills/reddit-scraping/index.js";
 import type { RedditScrapingConfig } from "../skills/reddit-scraping/index.js";
+import { RequestLogger } from "./logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -112,23 +113,27 @@ app.post("/api/chat", async (req, res) => {
 
   try {
     if (agentId === "researchy") {
-      // Pull real posts from r/Scams — works without credentials via public API
+      const logger = new RequestLogger();
+      logger.info("server", `Request received — agentId: ${agentId}`);
+
       const redditConfig: RedditScrapingConfig = {
         redditClientId:     process.env.REDDIT_CLIENT_ID,
         redditClientSecret: process.env.REDDIT_CLIENT_SECRET,
         serperApiKey:       process.env.SERPER_API_KEY,
+        logger,
       };
 
-      console.log("[researchy] Fetching live posts from r/Scams...");
       const fetched = await fetchRedditScamPosts(redditConfig);
-      console.log(`[researchy] Got ${fetched.posts.length} posts (auth: ${fetched.authMethod})`);
 
       if (fetched.posts.length === 0) {
-        res.status(502).json({ error: "Reddit returned no posts. Reddit may be rate-limiting — wait a minute and try again." });
+        logger.error("server", "Reddit returned 0 posts", { authMethod: fetched.authMethod, queriesUsed: fetched.queriesUsed });
+        res.status(502).json({
+          error: "Reddit returned no posts. Reddit may be rate-limiting — wait a minute and try again.",
+          logs: logger.entries,
+        });
         return;
       }
 
-      // Map skill output to agent input (field names match, just re-shape)
       const posts: RedditPost[] = fetched.posts.map(p => ({
         title:       p.title,
         upvotes:     p.upvotes,
@@ -141,14 +146,18 @@ app.post("/api/chat", async (req, res) => {
       }));
 
       const result = await runResearchy(
-        {
-          posts,
-          timeWindow: "24 hours",
-          scannedAt:  fetched.scannedAt,
-        },
-        { invokeLLM: makeInvokeLLM() }
+        { posts, timeWindow: "24 hours", scannedAt: fetched.scannedAt },
+        { invokeLLM: makeInvokeLLM(), logger }
       );
-      res.json({ agentId, type: "researchy", result, meta: { postsFetched: fetched.posts.length, authMethod: fetched.authMethod } });
+
+      logger.info("server", "Request complete");
+      res.json({
+        agentId,
+        type: "researchy",
+        result,
+        meta: { postsFetched: fetched.posts.length, authMethod: fetched.authMethod },
+        logs: logger.entries,
+      });
       return;
     }
 
@@ -164,6 +173,7 @@ app.post("/api/chat", async (req, res) => {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────

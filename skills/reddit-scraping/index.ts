@@ -13,12 +13,16 @@
  * ORIGINAL: server/skills/reddit-scraping/scripts/reddit_fetcher.ts (working — do not modify)
  */
 
+import type { RequestLogger } from "../../ui/logger.js";
+
 // ─── Public Types ─────────────────────────────────────────────────────────────
 
 export interface RedditScrapingConfig {
   serperApiKey?: string;
   redditClientId?: string;
   redditClientSecret?: string;
+  /** Optional — attach to get a full trace of what was fetched */
+  logger?: RequestLogger;
 }
 
 export interface FetchedRedditPost {
@@ -329,28 +333,29 @@ const SERPER_QUERIES = [
 export async function fetchRedditScamPosts(
   config: RedditScrapingConfig
 ): Promise<RedditFetchResult> {
+  const log = config.logger;
   const scannedAt = new Date().toISOString();
   const queriesUsed: string[] = [];
+
+  log?.info("reddit", "Starting Reddit fetch", { scannedAt, hasOAuth: !!(config.redditClientId && config.redditClientSecret), hasSerper: !!config.serperApiKey });
 
   // ── OAuth token ───────────────────────────────────────────────────────────
   let token: string | null = null;
   if (config.redditClientId && config.redditClientSecret) {
     token = await getOAuthToken(config.redditClientId, config.redditClientSecret);
+    log?.info("reddit", token ? "OAuth token obtained" : "OAuth token failed — falling back to public API");
   }
 
   const seen = new Set<string>();
   const discovered: DiscoveredPost[] = [];
 
   // ── Phase 0: Direct listing (no auth required, returns real data) ─────────
-  // Fetches r/Scams/new and r/Scams/hot directly — no flair query, no OAuth.
-  // Reddit's listing API always works for public subreddits and includes
-  // score, num_comments, flair, and author in the response payload itself,
-  // so no per-post enrichment calls are needed for these.
   const [newPosts, hotPosts] = await Promise.all([
     fetchListingDirect("new", 50),
     fetchListingDirect("hot", 25),
   ]);
   queriesUsed.push("r/Scams/new (listing)", "r/Scams/hot (listing)");
+  log?.info("reddit", `Phase 0 listing: /new returned ${newPosts.length} posts, /hot returned ${hotPosts.length} posts`);
 
   for (const post of [...newPosts, ...hotPosts]) {
     if (!post.url || seen.has(post.url)) continue;
@@ -358,6 +363,7 @@ export async function fetchRedditScamPosts(
     seen.add(post.url);
     discovered.push(post);
   }
+  log?.info("reddit", `After dedup: ${discovered.length} unique posts`);
 
   // ── Phase 1: Flair feeds (if OAuth available and need more posts) ─────────
   if (token && discovered.length < 30) {
@@ -365,6 +371,7 @@ export async function fetchRedditScamPosts(
       FLAIR_FEEDS.map((flair) => fetchFlairFeed(flair, 25, token))
     );
     queriesUsed.push(...FLAIR_FEEDS.map((f) => `r/Scams flair: "${f}"`));
+    log?.info("reddit", `Phase 1 flair feeds returned ${flairResults.flat().length} additional posts`);
 
     for (const posts of flairResults) {
       for (const post of posts) {
@@ -378,6 +385,7 @@ export async function fetchRedditScamPosts(
 
   // ── Phase 2: Serper fallback (if still not enough) ───────────────────────
   if (discovered.length < 15 && config.serperApiKey) {
+    log?.info("reddit", "Phase 2: falling back to Serper (too few posts from listing)");
     const searchResults = await Promise.all(
       SERPER_QUERIES.map(({ q, tbs, num }) =>
         fetch("https://google.serper.dev/search", {
@@ -406,9 +414,10 @@ export async function fetchRedditScamPosts(
   }
 
   // ── Phase 3: Enrich posts that don't have pre-loaded data ────────────────
-  // Posts from Phase 0 already carry _score/_comments etc. (from the listing
-  // payload). Only Phase 1/2 posts need enrichment.
   const needsEnrich = discovered.filter((p) => p._score === undefined);
+  if (needsEnrich.length > 0) {
+    log?.info("reddit", `Phase 3: enriching ${needsEnrich.length} posts that lack score data`);
+  }
   const enrichMap = needsEnrich.length > 0
     ? await enrichBatch(needsEnrich, token)
     : new Map<string, RedditPostData>();
@@ -421,13 +430,11 @@ export async function fetchRedditScamPosts(
       .trim();
     const bodyText = item.selftext?.length > 10 ? item.selftext : item.snippet;
 
-    // Use pre-loaded data from Phase 0 if available, otherwise enrichment
-    const score   = item._score   ?? enriched?.score          ?? 0;
-    const comments= item._comments?? enriched?.num_comments   ?? 0;
-    const ratio   = item._upvoteRatio ?? enriched?.upvote_ratio ?? 0;
-    const author  = item._author  ?? enriched?.author         ?? "r/Scams";
-    // Phase 0 returns actual flair text; fall back to inference for Serper results
-    const flair   = (item._flair && item._flair.length > 0)
+    const score    = item._score      ?? enriched?.score         ?? 0;
+    const comments = item._comments   ?? enriched?.num_comments  ?? 0;
+    const ratio    = item._upvoteRatio ?? enriched?.upvote_ratio ?? 0;
+    const author   = item._author     ?? enriched?.author        ?? "r/Scams";
+    const flair    = (item._flair && item._flair.length > 0)
       ? item._flair
       : inferFlair(cleanTitle, bodyText);
 
@@ -447,6 +454,18 @@ export async function fetchRedditScamPosts(
   const authMethod = token
     ? "OAuth (reddit app credentials)"
     : "Direct listing (no auth required)";
+
+  // Log the full list of raw posts for debugging
+  log?.debug("reddit", `All ${posts.length} raw posts sent to agent`, posts.map(p => ({
+    title: p.title,
+    upvotes: p.upvotes,
+    comments: p.comments,
+    flair: p.flair,
+    timeAgo: p.timeAgo,
+    url: p.url,
+  })));
+
+  log?.info("reddit", `Fetch complete — ${posts.length} posts, auth: ${authMethod}`);
 
   return {
     posts,
