@@ -36,6 +36,10 @@ const anthropic = new Anthropic({ apiKey: API_KEY });
 
 // ─── LLM Adapter ─────────────────────────────────────────────────────────────
 
+async function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function makeInvokeLLM() {
   return async (params: LLMInvokeParams) => {
     const systemMsg = params.messages.find(m => m.role === "system")?.content ?? "";
@@ -58,55 +62,70 @@ function makeInvokeLLM() {
       ? { type: "enabled" as const, budget_tokens: params.thinking.budget_tokens }
       : undefined;
 
-    // Anthropic doesn't support response_format — use tool_use to enforce schema
-    if (params.response_format?.type === "json_schema") {
-      const { name, schema } = params.response_format.json_schema;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const response = await (anthropic.messages.create as any)({
-        model,
-        max_tokens: maxTokens,
-        ...(thinkingParam ? { thinking: thinkingParam } : {}),
-        system: systemMsg,
-        messages: userMsgs.map(m => ({ role: m.role, content: m.content })),
-        tools: [{
-          name,
-          description: `Return structured output matching the ${name} schema.`,
-          input_schema: schema,
-        }],
-        // Thinking is incompatible with forced tool use ("tool" or "any").
-        // With "auto" the model sees one tool + a clear description and always calls it.
-        tool_choice: thinkingParam ? { type: "auto" } : { type: "tool", name },
-      });
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const blocks = response.content as Array<{ type: string; input?: unknown; thinking?: string }>;
-      const toolBlock    = blocks.find(b => b.type === "tool_use");
-      const thinkingBlock = blocks.find(b => b.type === "thinking");
-      const json = toolBlock ? JSON.stringify(toolBlock.input) : "{}";
-      return {
-        choices: [{ message: { content: json } }],
-        thinking: thinkingBlock?.thinking,
-      };
-    }
-
-    // No schema required — plain text response
+    // Retry up to 3 times on 529 overloaded errors (1s, 3s, 6s backoff)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const response = await (anthropic.messages.create as any)({
-      model,
-      max_tokens: maxTokens,
-      ...(thinkingParam ? { thinking: thinkingParam } : {}),
-      system: systemMsg,
-      messages: userMsgs.map(m => ({ role: m.role, content: m.content })),
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const blocks = response.content as Array<{ type: string; text?: string; thinking?: string }>;
-    const textBlock     = blocks.find(b => b.type === "text");
-    const thinkingBlock = blocks.find(b => b.type === "thinking");
-    return {
-      choices: [{ message: { content: textBlock?.text ?? "" } }],
-      thinking: thinkingBlock?.thinking,
+    const callAPI = async (attempt = 0): Promise<any> => {
+      try {
+        // Anthropic doesn't support response_format — use tool_use to enforce schema
+        if (params.response_format?.type === "json_schema") {
+          const { name, schema } = params.response_format.json_schema;
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const response = await (anthropic.messages.create as any)({
+            model,
+            max_tokens: maxTokens,
+            ...(thinkingParam ? { thinking: thinkingParam } : {}),
+            system: systemMsg,
+            messages: userMsgs.map(m => ({ role: m.role, content: m.content })),
+            tools: [{
+              name,
+              description: `Return structured output matching the ${name} schema.`,
+              input_schema: schema,
+            }],
+            tool_choice: thinkingParam ? { type: "auto" } : { type: "tool", name },
+          });
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const blocks = response.content as Array<{ type: string; input?: unknown; thinking?: string }>;
+          const toolBlock     = blocks.find(b => b.type === "tool_use");
+          const thinkingBlock = blocks.find(b => b.type === "thinking");
+          const json = toolBlock ? JSON.stringify(toolBlock.input) : "{}";
+          return {
+            choices: [{ message: { content: json } }],
+            thinking: thinkingBlock?.thinking,
+          };
+        }
+
+        // No schema required — plain text response
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const response = await (anthropic.messages.create as any)({
+          model,
+          max_tokens: maxTokens,
+          ...(thinkingParam ? { thinking: thinkingParam } : {}),
+          system: systemMsg,
+          messages: userMsgs.map(m => ({ role: m.role, content: m.content })),
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const blocks = response.content as Array<{ type: string; text?: string; thinking?: string }>;
+        const textBlock     = blocks.find(b => b.type === "text");
+        const thinkingBlock = blocks.find(b => b.type === "thinking");
+        return {
+          choices: [{ message: { content: textBlock?.text ?? "" } }],
+          thinking: thinkingBlock?.thinking,
+        };
+      } catch (err: unknown) {
+        const status = (err as { status?: number })?.status;
+        if (status === 529 && attempt < 3) {
+          const waitMs = [1000, 3000, 6000][attempt];
+          console.warn(`[LLM] 529 overloaded — retrying in ${waitMs}ms (attempt ${attempt + 1}/3)`);
+          await sleep(waitMs);
+          return callAPI(attempt + 1);
+        }
+        throw err;
+      }
     };
+
+    return callAPI();
   };
 }
 
