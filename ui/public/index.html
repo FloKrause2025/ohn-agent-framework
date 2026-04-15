@@ -742,7 +742,7 @@
         addAgentMessage(data.error ?? 'Something went wrong.', 'error');
         if (data.logs) renderLogsPanel(data.logs);
       } else if (data.type === 'researchy') {
-        renderResearchyResult(data.result, data.logs ?? [], data.runId);
+        renderResearchyResult(data.result, data.logs ?? []);
       } else {
         addAgentMessage(data.result?.message ?? 'No response.', 'text');
       }
@@ -848,7 +848,7 @@
     document.getElementById(id)?.classList.toggle('open');
   }
 
-  function renderResearchyResult(result, logs = [], runId = null) {
+  function renderResearchyResult(result, logs = []) {
     const msgs = document.getElementById('messages');
     const div  = document.createElement('div');
     div.className = 'msg agent';
@@ -898,11 +898,10 @@
       <div class="bubble">
         <div class="result-wrap">
 
-          <!-- Run ID — share with Claude for context -->
-          ${runId ? `<div style="font-family:monospace;font-size:10px;color:#475569;background:#0a0f1a;border:1px solid #1e293b;border-radius:6px;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;">
-            <span>🆔 Run ID: <strong style="color:#64748b;">${escHtml(runId)}</strong></span>
-            <button onclick="navigator.clipboard.writeText('${escHtml(runId)}')" style="background:transparent;border:1px solid #334155;border-radius:4px;color:#64748b;font-size:9px;padding:2px 7px;cursor:pointer;">Copy</button>
-          </div>` : ''}
+          <!-- Copy for Claude button -->
+          <div style="font-family:monospace;font-size:10px;background:#0a0f1a;border:1px solid #1e293b;border-radius:6px;padding:6px 10px;display:flex;justify-content:flex-end;">
+            <button id="copy-btn-result" style="background:#1e3a5f;border:1px solid #3b82f6;border-radius:4px;color:#93c5fd;font-size:10px;padding:3px 10px;cursor:pointer;font-family:monospace;white-space:nowrap;">📋 Copy result for Claude</button>
+          </div>
 
           <!-- Thinking block -->
           ${buildThinkingHtml(result.thinking)}
@@ -959,6 +958,18 @@
 
     msgs.appendChild(div);
     scrollBottom();
+
+    // Wire up the copy button
+    const copyBtn = document.getElementById('copy-btn-result');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        const payload = JSON.stringify({ result, logs }, null, 2);
+        navigator.clipboard.writeText(payload).then(() => {
+          copyBtn.textContent = '✅ Copied!';
+          setTimeout(() => { copyBtn.textContent = '📋 Copy result for Claude'; }, 2000);
+        });
+      });
+    }
   }
 
   // ── Typing Indicator ───────────────────────────────────────────────────────
