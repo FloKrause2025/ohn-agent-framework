@@ -13,6 +13,7 @@ import path from "path";
 import Anthropic from "@anthropic-ai/sdk";
 import { runResearchy } from "../agents/researchy/index.js";
 import type { RedditPost, LLMInvokeParams } from "../agents/researchy/index.js";
+import { runGoogly } from "../agents/googly/index.js";
 // RedditPost used for mapping below; LLMInvokeParams used by makeInvokeLLM
 import { fetchRedditScamPosts } from "../skills/reddit-scraping/index.js";
 import type { RedditScrapingConfig } from "../skills/reddit-scraping/index.js";
@@ -143,7 +144,7 @@ if (!process.env.VERCEL) {
 app.get("/api/agents", (_req, res) => {
   res.json([
     { id: "researchy",      name: "Researchy",       emoji: "👀", status: "live",        description: "Scam Researcher — filters r/Scams for OHN content topics" },
-    { id: "googly",         name: "Googly",           emoji: "🔍", status: "coming_soon", description: "Deep Research Specialist — investigates approved topics" },
+    { id: "googly",         name: "Googly",           emoji: "🔍", status: "live",        description: "Deep Research Specialist — investigates approved topics" },
     { id: "scripty",        name: "Scripty",          emoji: "🎬", status: "coming_soon", description: "Script Writer — writes 60-second video scripts" },
     { id: "quality-gate",   name: "Quality Gate",     emoji: "✅", status: "coming_soon", description: "QA Reviewer — checks scripts before approval" },
     { id: "instistati",     name: "InstiStati",       emoji: "📸", status: "coming_soon", description: "Instagram Analytics — organic performance reports" },
@@ -205,6 +206,32 @@ app.post("/api/chat", async (req, res) => {
         type: "researchy",
         result,
         meta: { postsFetched: fetched.posts.length },
+        logs: logger.entries,
+      });
+      return;
+    }
+
+    if (agentId === "googly") {
+      const logger = new RequestLogger();
+      logger.info("server", `Request received — agentId: ${agentId}`);
+
+      const serperApiKey = process.env.SERPER_API_KEY ?? "";
+      if (!serperApiKey) {
+        res.status(502).json({ error: "SERPER_API_KEY is not set.", logs: logger.entries });
+        return;
+      }
+
+      // message is the scam topic to research (can be a Reddit post title or manual input)
+      const result = await runGoogly(
+        { topic: message, scannedAt: new Date().toISOString() },
+        { invokeLLM: makeInvokeLLM(), serperApiKey, logger },
+      );
+
+      logger.info("server", "Request complete");
+      res.json({
+        agentId,
+        type: "googly",
+        result,
         logs: logger.entries,
       });
       return;

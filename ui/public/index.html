@@ -589,9 +589,9 @@
         <span class="emoji">👀</span><span class="name">Researchy</span>
         <span class="dot"></span>
       </button>
-      <button class="agent-btn disabled"    data-agent="googly">
+      <button class="agent-btn live"        data-agent="googly"      onclick="selectAgent(this)">
         <span class="emoji">🔍</span><span class="name">Googly</span>
-        <span class="status-tag">Soon</span>
+        <span class="dot"></span>
       </button>
       <button class="agent-btn disabled"    data-agent="scripty">
         <span class="emoji">🎬</span><span class="name">Scripty</span>
@@ -640,9 +640,10 @@
       <div class="welcome" id="welcome">
         <div class="big">🛡️</div>
         <h3>OHN Agent Testing</h3>
-        <p>Select an agent from the sidebar to start testing. Researchy is live and ready.</p>
+        <p>Select an agent from the sidebar to start testing. Researchy and Googly are live.</p>
         <div class="hint-pills">
           <span class="hint-pill" onclick="quickSelect('researchy', 'Scan for new scam topics')">👀 Try Researchy</span>
+          <span class="hint-pill" onclick="quickSelect('googly', 'Email phishing scam')">🔍 Try Googly</span>
         </div>
       </div>
     </div>
@@ -712,6 +713,7 @@
   function getWelcomeMessage(agent) {
     const messages = {
       researchy: '👋 Hey! I\'m Researchy. I\'ll scan our sample Reddit posts from r/Scams and filter them down to the best topics for OHN content.\n\nType anything (e.g. "scan" or "find new topics") to run the filter.',
+      googly: '🔍 Hey! I\'m Googly. Give me a scam topic (e.g. "email phishing", "romance scam", "fake tech support") and I\'ll research it across 10 targeted searches, rank sources by authority (government → cybersecurity → reject), and produce a full 7-section research report.\n\nType the scam topic to research:',
     };
     return messages[agent.id] ?? `${agent.emoji} ${agent.name} is coming soon.`;
   }
@@ -743,6 +745,8 @@
         if (data.logs) renderLogsPanel(data.logs);
       } else if (data.type === 'researchy') {
         renderResearchyResult(data.result, data.logs ?? []);
+      } else if (data.type === 'googly') {
+        renderGooglyResult(data.result, data.logs ?? []);
       } else {
         addAgentMessage(data.result?.message ?? 'No response.', 'text');
       }
@@ -957,6 +961,109 @@
         navigator.clipboard.writeText(payload).then(() => {
           copyBtn.textContent = '✅ Copied!';
           setTimeout(() => { copyBtn.textContent = '📋 Copy result for Claude'; }, 2000);
+        });
+      });
+    }
+  }
+
+  function renderGooglyResult(result, logs = []) {
+    const msgs = document.getElementById('messages');
+    const div  = document.createElement('div');
+    div.className = 'msg agent';
+
+    const { topic, report, tier1Count, tier2Count, tier3Count, totalSources, queriesRun } = result;
+    const sources = result.sources ?? [];
+
+    // Source rows — Tier 1 and Tier 2 only in the visible table
+    const tier1Sources = sources.filter(s => s.tier === 'TIER 1 ✅').slice(0, 8);
+    const tier2Sources = sources.filter(s => s.tier === 'TIER 2 ✅').slice(0, 8);
+
+    const sourceRow = (s, i) => `
+      <div style="padding:5px 0;border-bottom:1px solid var(--border);font-size:11px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:10px;font-weight:700;color:#6ee7b7;background:#064e3b;padding:1px 6px;border-radius:3px;flex-shrink:0;">${escHtml(s.tier)}</span>
+          <span style="color:var(--text);flex:1;word-break:break-word;">${escHtml(s.title)}</span>
+        </div>
+        <div style="margin-top:2px;padding-left:0;font-size:10px;color:#60a5fa;word-break:break-all;">
+          <a href="${escHtml(s.url)}" target="_blank" style="color:#60a5fa;">${escHtml(s.url)}</a>
+        </div>
+        <div style="margin-top:2px;color:var(--text-muted);font-size:10px;">${escHtml((s.snippet ?? '').slice(0, 180))}</div>
+      </div>`;
+
+    const allAcceptedSources = [...tier1Sources, ...tier2Sources];
+    const sourcesHtml = allAcceptedSources.length > 0
+      ? allAcceptedSources.map(sourceRow).join('')
+      : '<div style="font-size:12px;color:var(--text-muted);">No Tier 1 or Tier 2 sources found.</div>';
+
+    // Report formatted as monospace pre-wrap block
+    const reportId = 'googly-report-' + Date.now();
+    const copyBtnId = 'googly-copy-' + Date.now();
+
+    div.innerHTML = `
+      <div class="msg-meta">Googly 🔍</div>
+      <div class="bubble">
+        <div class="result-wrap">
+
+          <!-- Stats bar -->
+          <div class="funnel-card">
+            <h4>Research complete · "${escHtml(topic)}"</h4>
+            <div class="funnel-row">
+              <span class="label">Serper queries run</span>
+              <span class="value">${queriesRun ?? 10}</span>
+            </div>
+            <div class="funnel-row">
+              <span class="label">Unique sources found</span>
+              <span class="value">${totalSources ?? 0}</span>
+            </div>
+            <div class="funnel-row">
+              <span class="label">Tier 1 (gov / law enforcement)</span>
+              <span class="value" style="color:#6ee7b7;">${tier1Count ?? 0}</span>
+            </div>
+            <div class="funnel-row">
+              <span class="label">Tier 2 (cybersec / news)</span>
+              <span class="value" style="color:#93c5fd;">${tier2Count ?? 0}</span>
+            </div>
+            <div class="funnel-row">
+              <span class="label">Tier 3 (rejected — Reddit/blogs)</span>
+              <span class="value" style="color:#f87171;">${tier3Count ?? 0}</span>
+            </div>
+          </div>
+
+          <!-- Accepted sources -->
+          <div>
+            <button class="excluded-toggle" onclick="toggleExcluded(this)">
+              <span>🌐 ${allAcceptedSources.length} accepted sources (Tier 1 + 2) — click to see</span>
+              <span>▼</span>
+            </button>
+            <div class="excluded-list" style="display:none;">
+              <div style="padding:8px 0;">${sourcesHtml}</div>
+            </div>
+          </div>
+
+          <!-- Research report -->
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;">7-Section Research Report</div>
+              <button id="${copyBtnId}" style="background:#1e3a5f;border:1px solid #3b82f6;border-radius:4px;color:#93c5fd;font-size:10px;padding:3px 10px;cursor:pointer;font-family:monospace;">📋 Copy report</button>
+            </div>
+            <div id="${reportId}" style="background:#0a0f1a;border:1px solid var(--border);border-radius:8px;padding:14px 16px;font-family:monospace;font-size:11px;line-height:1.7;color:#cbd5e1;white-space:pre-wrap;word-break:break-word;max-height:600px;overflow-y:auto;">${escHtml(report)}</div>
+          </div>
+
+          <!-- Pipeline logs -->
+          ${buildLogsHtml(logs)}
+        </div>
+      </div>`;
+
+    msgs.appendChild(div);
+    scrollBottom();
+
+    // Wire copy button
+    const copyBtn = document.getElementById(copyBtnId);
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(report).then(() => {
+          copyBtn.textContent = '✅ Copied!';
+          setTimeout(() => { copyBtn.textContent = '📋 Copy report'; }, 2000);
         });
       });
     }
