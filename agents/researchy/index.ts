@@ -223,8 +223,9 @@ Include ONLY posts that meet ALL of the following:
 - The scam happens online (not in-person)
 - Relevant to everyday internet users
 - Especially dangerous for parents and grandparents (aged 50+)
-- At least 5 upvotes OR at least 3 comments — **skip this check if both upvotes AND comments show as 0 (data unavailable from source)**
 - Published within the stated time window
+
+**NOTE on engagement data:** Upvote and comment counts are often unavailable (shown as "N/A") when posts are fetched without Reddit authentication. When engagement shows as "N/A", ignore it entirely and evaluate relevance based on title, content, and category fit only. Do NOT exclude posts solely because engagement data is missing.
 
 **Step 5 — Urgency scoring.**
 
@@ -369,15 +370,19 @@ export async function runResearchy(
 
   log?.debug("researchy", "System prompt", { systemPrompt });
 
-  const postsText = posts.slice(0, 50).map((p, i) =>
-    [
+  const postsText = posts.slice(0, 50).map((p, i) => {
+    // When both upvotes and comments are 0, treat as unavailable (Serper-sourced data)
+    const engagementLine = (p.upvotes === 0 && p.comments === 0)
+      ? `Upvotes: N/A | Comments: N/A | Posted: ${p.timeAgo}`
+      : `Upvotes: ${p.upvotes} | Comments: ${p.comments} | Posted: ${p.timeAgo}`;
+    return [
       `POST ${i + 1}: ${p.title}`,
-      `Upvotes: ${p.upvotes} | Comments: ${p.comments} | Posted: ${p.timeAgo}`,
+      engagementLine,
       p.flair ? `Flair: ${p.flair}` : null,
       p.bodyPreview ? `Preview: ${p.bodyPreview.slice(0, 200)}` : null,
       `URL: ${p.url}`,
-    ].filter(Boolean).join("\n")
-  ).join("\n\n");
+    ].filter(Boolean).join("\n");
+  }).join("\n\n");
 
   const topicHistoryNote = deps.db
     ? "Topic history has been injected above."
