@@ -390,7 +390,7 @@ Apply your 7-step filter and return the shortlist. Return ONLY valid JSON matchi
 ${postsText}`;
 
   log?.debug("researchy", "User message sent to LLM", { userMessage });
-  log?.info("researchy", `Calling LLM (claude-sonnet-4-6 with extended thinking) with ${posts.slice(0, 50).length} posts`);
+  log?.info("researchy", `Calling LLM (claude-sonnet-4-6, thinking budget: 1500 tokens) with ${posts.slice(0, 50).length} posts`);
 
   const response = await deps.invokeLLM({
     model: "claude-sonnet-4-6",
@@ -398,7 +398,7 @@ ${postsText}`;
       { role: "system", content: systemPrompt },
       { role: "user",   content: userMessage },
     ],
-    thinking: { budget_tokens: 8000 },
+    thinking: { budget_tokens: 1500 },
     response_format: {
       type: "json_schema",
       json_schema: {

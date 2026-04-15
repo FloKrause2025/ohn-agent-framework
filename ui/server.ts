@@ -47,9 +47,10 @@ function makeInvokeLLM() {
       ? "claude-sonnet-4-6"
       : requestedModel;
 
-    // When thinking is enabled: max_tokens must exceed budget_tokens
+    // When thinking is enabled: max_tokens must exceed budget_tokens.
+    // Keep total under ~8k to avoid Vercel's 60s function timeout.
     const maxTokens = params.thinking
-      ? Math.max(16000, params.thinking.budget_tokens + 8000)
+      ? params.thinking.budget_tokens + 4096
       : 4096;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
