@@ -436,8 +436,13 @@ export async function fetchRedditScamPosts(
   }
 
   // ── Phase 3: Enrich posts that don't have pre-loaded data ────────────────
-  const needsEnrich = discovered.filter((p) => p._score === undefined);
-  if (needsEnrich.length > 0) {
+  // Skip enrichment if Reddit is blocking direct API calls (same IP block applies).
+  // Posts from Serper won't have scores — agent is instructed to ignore 0/0 counts.
+  const redditBlocked = newResult.status !== null && newResult.status !== 200;
+  const needsEnrich = redditBlocked ? [] : discovered.filter((p) => p._score === undefined);
+  if (redditBlocked) {
+    log?.warn("reddit", "Skipping enrichment — Reddit is blocking this IP, per-post calls would also fail");
+  } else if (needsEnrich.length > 0) {
     log?.info("reddit", `Phase 3: enriching ${needsEnrich.length} posts that lack score data`);
   }
   const enrichMap = needsEnrich.length > 0

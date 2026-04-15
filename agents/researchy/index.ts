@@ -222,7 +222,7 @@ Include ONLY posts that meet ALL of the following:
 - The scam happens online (not in-person)
 - Relevant to everyday internet users
 - Especially dangerous for parents and grandparents (aged 50+)
-- At least 5 upvotes OR at least 3 comments
+- At least 5 upvotes OR at least 3 comments — **skip this check if both upvotes AND comments show as 0 (data unavailable from source)**
 - Published within the stated time window
 
 **Step 5 — Urgency scoring.**

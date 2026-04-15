@@ -181,7 +181,7 @@ app.post("/api/chat", async (req, res) => {
       }));
 
       const result = await runResearchy(
-        { posts, timeWindow: "24 hours", scannedAt: fetched.scannedAt },
+        { posts, timeWindow: "7 days", scannedAt: fetched.scannedAt },
         { invokeLLM: makeInvokeLLM(), logger }
       );
 
