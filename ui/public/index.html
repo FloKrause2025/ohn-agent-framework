@@ -857,8 +857,20 @@
     const excluded  = result.excluded  ?? [];
     const meta      = result.meta      ?? {};
 
+    // Sort shortlist newest first by parsing relative time strings
+    function ageMinutes(postedAt) {
+      const s = (postedAt ?? '').toLowerCase();
+      const n = parseInt(s) || 1;
+      if (s.includes('minute')) return n;
+      if (s.includes('hour'))   return n * 60;
+      if (s.includes('day'))    return n * 1440;
+      if (s.includes('week'))   return n * 10080;
+      return 99999;
+    }
+    const sorted = [...shortlist].sort((a, b) => ageMinutes(a.postedAt) - ageMinutes(b.postedAt));
+
     // Build shortlist cards — simple: title, summary, date, link
-    const topicCards = shortlist.map((t, i) => {
+    const topicCards = sorted.map((t, i) => {
       const dupeNote = t.relatedPosts?.length > 0
         ? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted);">Also seen in ${t.relatedPosts.length} similar post${t.relatedPosts.length > 1 ? 's' : ''}</div>` : '';
       return `
