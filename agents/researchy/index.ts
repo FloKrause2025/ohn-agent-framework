@@ -396,7 +396,7 @@ ${postsText}`;
     // Fallback: return empty result rather than throwing
     return {
       meta: {
-        scrapedAt,
+        scrapedAt: scannedAt,
         timeWindow,
         rawPostsReviewed: posts.length,
         afterDeduplication: 0,

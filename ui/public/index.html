@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OHN Agent Testing</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f172a;
+      --surface:   #1e293b;
+      --surface2:  #273549;
+      --border:    #334155;
+      --accent:    #e11d48;
+      --blue:      #3b82f6;
+      --text:      #f1f5f9;
+      --text-muted:#94a3b8;
+      --high:      #ef4444;
+      --medium:    #f59e0b;
+      --low:       #22c55e;
+      --radius:    12px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    header .logo { font-size: 22px; }
+    header h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+    header p  { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+    header .badge {
+      margin-left: auto;
+      background: #064e3b;
+      color: #6ee7b7;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 99px;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ────────────────────────────────────────────────────────── */
+    aside {
+      width: 230px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .sidebar-section { padding: 16px 14px 6px; }
+    .sidebar-section-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      padding: 0 4px;
+      margin-bottom: 6px;
+    }
+    .agent-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background 0.15s;
+      position: relative;
+    }
+    .agent-btn:hover { background: var(--surface2); }
+    .agent-btn.active { background: var(--surface2); }
+    .agent-btn .emoji { font-size: 16px; width: 22px; text-align: center; }
+    .agent-btn .name  { flex: 1; }
+    .agent-btn .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+    .agent-btn.live .dot     { background: #22c55e; }
+    .agent-btn.building .dot { background: #f59e0b; }
+    .agent-btn.disabled { opacity: 0.45; cursor: default; }
+    .agent-btn .status-tag {
+      font-size: 9px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--border);
+      color: var(--text-muted);
+      letter-spacing: 0.3px;
+    }
+    .agent-btn.live .status-tag {
+      background: #064e3b;
+      color: #6ee7b7;
+    }
+
+    /* ── Chat Area ──────────────────────────────────────────────────────── */
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .agent-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .agent-header-inner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .agent-header .big-emoji { font-size: 28px; }
+    .agent-header h2 { font-size: 16px; font-weight: 700; }
+    .agent-header p  { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .messages::-webkit-scrollbar { width: 6px; }
+    .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Message Bubbles ─────────────────────────────────────────────────── */
+    .msg { display: flex; flex-direction: column; max-width: 88%; }
+    .msg.user { align-self: flex-end; align-items: flex-end; }
+    .msg.agent { align-self: flex-start; align-items: flex-start; }
+
+    .msg-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+      padding: 0 4px;
+    }
+
+    .bubble {
+      padding: 11px 15px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .msg.user .bubble {
+      background: var(--blue);
+      color: white;
+      border-bottom-right-radius: 3px;
+    }
+    .msg.agent .bubble {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 3px;
+      max-width: 100%;
+      width: 100%;
+    }
+
+    /* ── Structured Output Cards ─────────────────────────────────────────── */
+    .result-wrap { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+
+    .funnel-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .funnel-card h4 {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 10px;
+    }
+    .funnel-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      padding: 3px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .funnel-row:last-child { border-bottom: none; }
+    .funnel-row .label { color: var(--text-muted); }
+    .funnel-row .value { font-weight: 700; font-size: 14px; }
+    .funnel-arrow { color: var(--text-muted); font-size: 10px; padding: 2px 0; }
+
+    .shortlist-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .topic-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      border-left: 3px solid var(--border);
+    }
+    .topic-card.high   { border-left-color: var(--high); }
+    .topic-card.medium { border-left-color: var(--medium); }
+    .topic-card.low    { border-left-color: var(--low); }
+
+    .topic-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .topic-rank {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: var(--border);
+      font-size: 11px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .topic-name { font-size: 14px; font-weight: 700; flex: 1; }
+    .urgency-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .urgency-badge.high   { background: #450a0a; color: #fca5a5; }
+    .urgency-badge.medium { background: #451a03; color: #fde68a; }
+    .urgency-badge.low    { background: #052e16; color: #86efac; }
+
+    .topic-category {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .topic-field {
+      font-size: 12px;
+      margin-bottom: 5px;
+      line-height: 1.5;
+    }
+    .topic-field .field-label {
+      color: var(--text-muted);
+      font-weight: 600;
+      margin-right: 4px;
+    }
+    .topic-stats {
+      display: flex;
+      gap: 14px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+    .topic-stat { font-size: 11px; color: var(--text-muted); }
+    .topic-stat strong { color: var(--text); }
+    .topic-link {
+      margin-top: 6px;
+      font-size: 11px;
+    }
+    .topic-link a { color: #60a5fa; text-decoration: none; }
+    .topic-link a:hover { text-decoration: underline; }
+    .new-variant-tag {
+      display: inline-block;
+      background: #312e81;
+      color: #a5b4fc;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      margin-left: 6px;
+    }
+
+    .excluded-toggle {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-muted);
+      font-size: 12px;
+      padding: 8px 14px;
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .excluded-toggle:hover { background: var(--surface2); color: var(--text); }
+    .excluded-list {
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .excluded-list.open { display: flex; }
+    .excluded-item {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+    }
+    .excluded-item .ex-title { color: var(--text-muted); margin-bottom: 2px; }
+    .excluded-item .ex-reason { color: #f87171; }
+
+    .agent-note-card {
+      background: #1a1035;
+      border: 1px solid #4c1d95;
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      font-size: 13px;
+      color: #c4b5fd;
+      font-style: italic;
+      line-height: 1.6;
+    }
+    .agent-note-card::before {
+      content: "👀 Researchy says: ";
+      font-style: normal;
+      font-weight: 700;
+      color: #a78bfa;
+    }
+
+    .summary-line {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 4px 0;
+    }
+
+    /* ── Typing Indicator ────────────────────────────────────────────────── */
+    .typing {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 12px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      border-bottom-left-radius: 3px;
+      width: fit-content;
+    }
+    .typing span {
+      width: 7px; height: 7px;
+      background: var(--text-muted);
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-6px); }
+    }
+
+    /* ── Input Area ──────────────────────────────────────────────────────── */
+    .input-area {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .input-area input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 14px;
+      padding: 11px 16px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .input-area input:focus { border-color: var(--blue); }
+    .input-area input::placeholder { color: var(--text-muted); }
+    .input-area input:disabled { opacity: 0.5; }
+    .send-btn {
+      background: var(--blue);
+      border: none;
+      border-radius: 10px;
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 11px 20px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      flex-shrink: 0;
+    }
+    .send-btn:hover   { opacity: 0.85; }
+    .send-btn:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── Welcome State ───────────────────────────────────────────────────── */
+    .welcome {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 8px;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 40px;
+    }
+    .welcome .big { font-size: 40px; margin-bottom: 8px; }
+    .welcome h3 { font-size: 18px; font-weight: 700; color: var(--text); }
+    .welcome p  { font-size: 14px; max-width: 340px; line-height: 1.6; }
+    .hint-pills {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      justify-content: center;
+      margin-top: 12px;
+    }
+    .hint-pill {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      font-size: 12px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .hint-pill:hover { background: var(--border); }
+
+    /* ── Error ───────────────────────────────────────────────────────────── */
+    .error-bubble {
+      background: #450a0a;
+      border: 1px solid #7f1d1d;
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #fca5a5;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🛡️</div>
+  <div>
+    <h1>OHN Agent Testing</h1>
+    <p>oh HACK no! — Internal Tools</p>
+  </div>
+  <div class="badge">Internal Only</div>
+</header>
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside>
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Content Pipeline</div>
+      <button class="agent-btn live"        data-agent="researchy"      onclick="selectAgent(this)">
+        <span class="emoji">👀</span><span class="name">Researchy</span>
+        <span class="dot"></span>
+      </button>
+      <button class="agent-btn disabled"    data-agent="googly">
+        <span class="emoji">🔍</span><span class="name">Googly</span>
+        <span class="status-tag">Soon</span>
+      </button>
+      <button class="agent-btn disabled"    data-agent="scripty">
+        <span class="emoji">🎬</span><span class="name">Scripty</span>
+        <span class="status-tag">Soon</span>
+      </button>
+      <button class="agent-btn disabled"    data-agent="quality-gate">
+        <span class="emoji">✅</span><span class="name">Quality Gate</span>
+        <span class="status-tag">Soon</span>
+      </button>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Analytics</div>
+      <button class="agent-btn disabled"    data-agent="instistati">
+        <span class="emoji">📸</span><span class="name">InstiStati</span>
+        <span class="status-tag">Soon</span>
+      </button>
+      <button class="agent-btn disabled"    data-agent="statsy">
+        <span class="emoji">📊</span><span class="name">Statsy</span>
+        <span class="status-tag">Soon</span>
+      </button>
+      <button class="agent-btn disabled"    data-agent="addy">
+        <span class="emoji">🎯</span><span class="name">Addy</span>
+        <span class="status-tag">Soon</span>
+      </button>
+      <button class="agent-btn disabled"    data-agent="paid-marketing">
+        <span class="emoji">💰</span><span class="name">PaidMarketing</span>
+        <span class="status-tag">Soon</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Chat Area -->
+  <div class="chat-area">
+
+    <div class="agent-header" id="agentHeader" style="display:none">
+      <div class="agent-header-inner">
+        <div class="big-emoji" id="agentEmoji"></div>
+        <div>
+          <h2 id="agentName"></h2>
+          <p id="agentDesc"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="welcome" id="welcome">
+        <div class="big">🛡️</div>
+        <h3>OHN Agent Testing</h3>
+        <p>Select an agent from the sidebar to start testing. Researchy is live and ready.</p>
+        <div class="hint-pills">
+          <span class="hint-pill" onclick="quickSelect('researchy', 'Scan for new scam topics')">👀 Try Researchy</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <input type="text" id="msgInput" placeholder="Select an agent to start…" disabled
+             onkeydown="if(event.key==='Enter') sendMessage()" />
+      <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  let currentAgent = null;
+  let agents = [];
+  let isLoading = false;
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  fetch('/api/agents')
+    .then(r => r.json())
+    .then(data => { agents = data; });
+
+  // ── Agent Selection ────────────────────────────────────────────────────────
+  function selectAgent(btn) {
+    if (btn.classList.contains('disabled')) return;
+    document.querySelectorAll('.agent-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    const agentId = btn.dataset.agent;
+    const agent   = agents.find(a => a.id === agentId) ?? {
+      id: agentId, emoji: '🤖', name: agentId, description: ''
+    };
+    currentAgent = agent;
+
+    // Update header
+    document.getElementById('agentHeader').style.display = 'block';
+    document.getElementById('agentEmoji').textContent = agent.emoji;
+    document.getElementById('agentName').textContent  = agent.name;
+    document.getElementById('agentDesc').textContent  = agent.description;
+
+    // Clear messages and show agent welcome
+    const msgs = document.getElementById('messages');
+    msgs.innerHTML = '';
+    addAgentMessage(getWelcomeMessage(agent), 'text');
+
+    // Enable input
+    const input = document.getElementById('msgInput');
+    input.disabled  = false;
+    input.placeholder = `Message ${agent.name}…`;
+    document.getElementById('sendBtn').disabled = false;
+    input.focus();
+  }
+
+  function quickSelect(agentId, message) {
+    const btn = document.querySelector(`[data-agent="${agentId}"]`);
+    if (btn && !btn.classList.contains('disabled')) {
+      selectAgent(btn);
+      setTimeout(() => {
+        document.getElementById('msgInput').value = message;
+        sendMessage();
+      }, 100);
+    }
+  }
+
+  function getWelcomeMessage(agent) {
+    const messages = {
+      researchy: '👋 Hey! I\'m Researchy. I\'ll scan our sample Reddit posts from r/Scams and filter them down to the best topics for OHN content.\n\nType anything (e.g. "scan" or "find new topics") to run the filter.',
+    };
+    return messages[agent.id] ?? `${agent.emoji} ${agent.name} is coming soon.`;
+  }
+
+  // ── Send Message ───────────────────────────────────────────────────────────
+  async function sendMessage() {
+    if (!currentAgent || isLoading) return;
+    const input = document.getElementById('msgInput');
+    const text  = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    addUserMessage(text);
+    showTyping();
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: currentAgent.id, message: text }),
+      });
+
+      const data = await res.json();
+      hideTyping();
+
+      if (!res.ok || data.error) {
+        addAgentMessage(data.error ?? 'Something went wrong.', 'error');
+      } else if (data.type === 'researchy') {
+        renderResearchyResult(data.result);
+      } else {
+        addAgentMessage(data.result?.message ?? 'No response.', 'text');
+      }
+    } catch (err) {
+      hideTyping();
+      addAgentMessage('Network error — is the server running?', 'error');
+    }
+
+    setLoading(false);
+  }
+
+  // ── Message Renderers ──────────────────────────────────────────────────────
+  function addUserMessage(text) {
+    const msgs = document.getElementById('messages');
+    const div  = document.createElement('div');
+    div.className = 'msg user';
+    div.innerHTML = `
+      <div class="msg-meta">You</div>
+      <div class="bubble">${escHtml(text)}</div>
+    `;
+    msgs.appendChild(div);
+    scrollBottom();
+  }
+
+  function addAgentMessage(content, type = 'text') {
+    const msgs = document.getElementById('messages');
+    const div  = document.createElement('div');
+    div.className = 'msg agent';
+    const inner = type === 'error'
+      ? `<div class="error-bubble">${escHtml(content)}</div>`
+      : `<div class="bubble">${escHtml(content).replace(/\n/g, '<br>')}</div>`;
+    div.innerHTML = `<div class="msg-meta">${currentAgent?.name ?? 'Agent'}</div>${inner}`;
+    msgs.appendChild(div);
+    scrollBottom();
+  }
+
+  function renderResearchyResult(result) {
+    const msgs = document.getElementById('messages');
+    const div  = document.createElement('div');
+    div.className = 'msg agent';
+
+    const shortlist = result.shortlist ?? [];
+    const excluded  = result.excluded  ?? [];
+    const meta      = result.meta      ?? {};
+
+    // Build shortlist cards HTML
+    const topicCards = shortlist.map(t => {
+      const icon = t.urgency === 'high' ? '🔴' : t.urgency === 'medium' ? '🟡' : '🟢';
+      const dupeNote = t.duplicatePostCount > 1
+        ? `<span class="topic-stat"><strong>${t.duplicatePostCount}</strong> posts on this topic</span>` : '';
+      const variantTag = t.newVariant
+        ? `<span class="new-variant-tag">⚡ NEW VARIANT</span>` : '';
+      return `
+        <div class="topic-card ${t.urgency}">
+          <div class="topic-header">
+            <div class="topic-rank">${t.rank}</div>
+            <div class="topic-name">${escHtml(t.scamName)}${variantTag}</div>
+            <span class="urgency-badge ${t.urgency}">${icon} ${t.urgency}</span>
+          </div>
+          <div class="topic-category">${escHtml(t.category)}</div>
+          <div class="topic-field"><span class="field-label">Angle:</span>${escHtml(t.suggestedAngle)}</div>
+          <div class="topic-field"><span class="field-label">Why OHN:</span>${escHtml(t.whyRelevant)}</div>
+          <div class="topic-field"><span class="field-label">Audience:</span>${escHtml(t.audience)}</div>
+          <div class="topic-stats">
+            <span class="topic-stat">▲ <strong>${t.upvotes}</strong> upvotes</span>
+            <span class="topic-stat">💬 <strong>${t.comments}</strong> comments</span>
+            <span class="topic-stat">🕐 ${escHtml(t.postAge)}</span>
+            ${dupeNote}
+          </div>
+          <div class="topic-link"><a href="${escHtml(t.redditUrl)}" target="_blank">View on Reddit →</a></div>
+        </div>`;
+    }).join('');
+
+    // Build excluded list HTML
+    const excludedItems = excluded.map(e => `
+      <div class="excluded-item">
+        <div class="ex-title">${escHtml(e.originalTitle)}</div>
+        <div class="ex-reason">→ ${escHtml(e.exclusionReason)}</div>
+      </div>`).join('');
+
+    div.innerHTML = `
+      <div class="msg-meta">Researchy 👀</div>
+      <div class="bubble">
+        <div class="result-wrap">
+
+          <!-- Funnel stats -->
+          <div class="funnel-card">
+            <h4>Filter Funnel · ${escHtml(meta.timeWindow ?? '')}</h4>
+            <div class="funnel-row">
+              <span class="label">Raw posts reviewed</span>
+              <span class="value">${meta.rawPostsReviewed ?? 0}</span>
+            </div>
+            <div class="funnel-arrow">↓</div>
+            <div class="funnel-row">
+              <span class="label">After deduplication</span>
+              <span class="value">${meta.afterDeduplication ?? 0}</span>
+            </div>
+            <div class="funnel-arrow">↓</div>
+            <div class="funnel-row">
+              <span class="label">After category filter</span>
+              <span class="value">${meta.afterCategoryFilter ?? 0}</span>
+            </div>
+            <div class="funnel-arrow">↓</div>
+            <div class="funnel-row">
+              <span class="label">After relevance filter</span>
+              <span class="value">${meta.afterRelevanceFilter ?? 0}</span>
+            </div>
+          </div>
+
+          <!-- Shortlist -->
+          <div class="shortlist-title">Shortlist · ${shortlist.length} topic${shortlist.length !== 1 ? 's' : ''}</div>
+          ${topicCards || '<div class="summary-line">No qualifying topics found.</div>'}
+
+          <!-- Summary -->
+          <div class="summary-line">${escHtml(result.summary ?? '')}</div>
+
+          <!-- Excluded toggle -->
+          ${excluded.length > 0 ? `
+            <div>
+              <button class="excluded-toggle" onclick="toggleExcluded(this)">
+                <span>🚫 ${excluded.length} posts excluded — see why</span>
+                <span>▼</span>
+              </button>
+              <div class="excluded-list">${excludedItems}</div>
+            </div>
+          ` : ''}
+
+          <!-- Agent note -->
+          ${result.agentNote ? `<div class="agent-note-card">${escHtml(result.agentNote)}</div>` : ''}
+        </div>
+      </div>`;
+
+    msgs.appendChild(div);
+    scrollBottom();
+  }
+
+  // ── Typing Indicator ───────────────────────────────────────────────────────
+  let typingEl = null;
+  function showTyping() {
+    const msgs = document.getElementById('messages');
+    const div  = document.createElement('div');
+    div.className  = 'msg agent';
+    div.id         = 'typing-indicator';
+    div.innerHTML  = `<div class="msg-meta">${currentAgent?.name ?? 'Agent'}</div>
+      <div class="typing"><span></span><span></span><span></span></div>`;
+    msgs.appendChild(div);
+    scrollBottom();
+  }
+  function hideTyping() {
+    document.getElementById('typing-indicator')?.remove();
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function setLoading(state) {
+    isLoading = state;
+    document.getElementById('msgInput').disabled  = state;
+    document.getElementById('sendBtn').disabled   = state;
+    document.getElementById('sendBtn').textContent = state ? '…' : 'Send';
+  }
+
+  function scrollBottom() {
+    const msgs = document.getElementById('messages');
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function toggleExcluded(btn) {
+    const list = btn.nextElementSibling;
+    list.classList.toggle('open');
+    btn.querySelector('span:last-child').textContent = list.classList.contains('open') ? '▲' : '▼';
+  }
+
+  function escHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>
+
+</body>
+</html>
