@@ -857,31 +857,22 @@
     const excluded  = result.excluded  ?? [];
     const meta      = result.meta      ?? {};
 
-    // Build shortlist cards HTML
-    const topicCards = shortlist.map(t => {
-      const icon = t.urgency === 'high' ? '🔴' : t.urgency === 'medium' ? '🟡' : '🟢';
-      const dupeNote = t.duplicatePostCount > 1
-        ? `<span class="topic-stat"><strong>${t.duplicatePostCount}</strong> posts on this topic</span>` : '';
-      const variantTag = t.newVariant
-        ? `<span class="new-variant-tag">⚡ NEW VARIANT</span>` : '';
+    // Build shortlist cards — simple: title, summary, date, link
+    const topicCards = shortlist.map((t, i) => {
+      const dupeNote = t.relatedPosts?.length > 0
+        ? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted);">Also seen in ${t.relatedPosts.length} similar post${t.relatedPosts.length > 1 ? 's' : ''}</div>` : '';
       return `
-        <div class="topic-card ${t.urgency}">
+        <div class="topic-card" style="border-left-color:#3b82f6;">
           <div class="topic-header">
-            <div class="topic-rank">${t.rank}</div>
-            <div class="topic-name">${escHtml(t.scamName)}${variantTag}</div>
-            <span class="urgency-badge ${t.urgency}">${icon} ${t.urgency}</span>
+            <div class="topic-rank">${i + 1}</div>
+            <div class="topic-name" style="font-size:13px;">${escHtml(t.originalTitle)}</div>
           </div>
-          <div class="topic-category">${escHtml(t.category)}</div>
-          <div class="topic-field"><span class="field-label">Angle:</span>${escHtml(t.suggestedAngle)}</div>
-          <div class="topic-field"><span class="field-label">Why OHN:</span>${escHtml(t.whyRelevant)}</div>
-          <div class="topic-field"><span class="field-label">Audience:</span>${escHtml(t.audience)}</div>
-          <div class="topic-stats">
-            <span class="topic-stat">▲ <strong>${t.upvotes}</strong> upvotes</span>
-            <span class="topic-stat">💬 <strong>${t.comments}</strong> comments</span>
-            <span class="topic-stat">🕐 ${escHtml(t.postAge)}</span>
-            ${dupeNote}
+          <div class="topic-field" style="margin-top:8px;">${escHtml(t.summary)}</div>
+          <div class="topic-stats" style="margin-top:8px;">
+            <span class="topic-stat">🕐 ${escHtml(t.postedAt)}</span>
           </div>
-          <div class="topic-link"><a href="${escHtml(t.redditUrl)}" target="_blank">View on Reddit →</a></div>
+          ${dupeNote}
+          <div class="topic-link" style="margin-top:8px;"><a href="${escHtml(t.redditUrl)}" target="_blank">View on Reddit →</a></div>
         </div>`;
     }).join('');
 
@@ -903,39 +894,26 @@
             <button id="copy-btn-result" style="background:#1e3a5f;border:1px solid #3b82f6;border-radius:4px;color:#93c5fd;font-size:10px;padding:3px 10px;cursor:pointer;font-family:monospace;white-space:nowrap;">📋 Copy result for Claude</button>
           </div>
 
-          <!-- Thinking block -->
-          ${buildThinkingHtml(result.thinking)}
-
-          <!-- Funnel stats -->
+          <!-- Stats bar -->
           <div class="funnel-card">
-            <h4>Filter Funnel · ${escHtml(meta.timeWindow ?? '')}</h4>
+            <h4>Scan complete · ${escHtml(meta.timeWindow ?? '')}</h4>
             <div class="funnel-row">
-              <span class="label">Raw posts reviewed</span>
+              <span class="label">Posts reviewed</span>
               <span class="value">${meta.rawPostsReviewed ?? 0}</span>
             </div>
-            <div class="funnel-arrow">↓</div>
             <div class="funnel-row">
-              <span class="label">After deduplication</span>
-              <span class="value">${meta.afterDeduplication ?? 0}</span>
+              <span class="label">Online scams shortlisted</span>
+              <span class="value" style="color:#6ee7b7;">${shortlist.length}</span>
             </div>
-            <div class="funnel-arrow">↓</div>
             <div class="funnel-row">
-              <span class="label">After category filter</span>
-              <span class="value">${meta.afterCategoryFilter ?? 0}</span>
-            </div>
-            <div class="funnel-arrow">↓</div>
-            <div class="funnel-row">
-              <span class="label">After relevance filter</span>
-              <span class="value">${meta.afterRelevanceFilter ?? 0}</span>
+              <span class="label">Excluded (not online / not a scam)</span>
+              <span class="value" style="color:#f87171;">${excluded.length}</span>
             </div>
           </div>
 
           <!-- Shortlist -->
-          <div class="shortlist-title">Shortlist · ${shortlist.length} topic${shortlist.length !== 1 ? 's' : ''}</div>
-          ${topicCards || '<div class="summary-line">No qualifying topics found.</div>'}
-
-          <!-- Summary -->
-          <div class="summary-line">${escHtml(result.summary ?? '')}</div>
+          <div class="shortlist-title">Online Scams · ${shortlist.length} found</div>
+          ${topicCards || '<div class="summary-line">No online scams found in this batch.</div>'}
 
           <!-- Excluded toggle -->
           ${excluded.length > 0 ? `

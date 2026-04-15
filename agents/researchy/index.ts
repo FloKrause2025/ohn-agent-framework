@@ -59,23 +59,11 @@ export interface RedditPost {
 // ─── Output Types ─────────────────────────────────────────────────────────────
 
 export interface ShortlistedTopic {
-  rank: number;
-  scamName: string;
-  category: string;
   originalTitle: string;
-  bodyPreview: string;
+  summary: string;
+  postedAt: string;
   redditUrl: string;
   relatedPosts: string[];
-  duplicatePostCount: number;
-  postAge: string;
-  upvotes: number;
-  comments: number;
-  urgency: "high" | "medium" | "low";
-  audience: string;
-  whyRelevant: string;
-  suggestedAngle: string;
-  newVariant: boolean;
-  newVariantNote: string;
 }
 
 export interface ExcludedPost {
@@ -88,17 +76,14 @@ export interface ResearchyMeta {
   scrapedAt: string;
   timeWindow: string;
   rawPostsReviewed: number;
-  afterDeduplication: number;
-  afterCategoryFilter: number;
-  afterRelevanceFilter: number;
-  topicHistoryChecked: boolean;
+  shortlisted: number;
+  excluded: number;
 }
 
 export interface ResearchyResult {
   meta: ResearchyMeta;
   shortlist: ShortlistedTopic[];
   excluded: ExcludedPost[];
-  summary: string;
   agentNote: string;
   /** Extended thinking text — populated when thinking is enabled, not part of LLM schema */
   thinking?: string;
@@ -179,104 +164,37 @@ async function buildMemoryBlock(db?: ResearchyDb): Promise<string> {
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(memoryBlock: string, kbContent?: string): string {
-  const categoryBlock = kbContent ?? `
-**The 10 approved scam categories:**
-1. Phishing & Impersonation (fake banks, government, tech support, Amazon, HMRC, IRS, DVLA, etc.)
-2. Romance & Relationship Scams (dating apps, social media, fake relationships, pig butchering)
-3. Investment & Crypto Scams (fake platforms, get-rich-quick, Ponzi schemes)
-4. Job & Employment Scams (fake job offers, work-from-home, mystery shopper, task scams)
-5. Package & Delivery Scams (fake USPS, FedEx, Royal Mail, customs fees, missed delivery)
-6. Lottery & Prize Scams (fake winnings, sweepstakes, gift card demands)
-7. Grandparent & Family Emergency Scams (fake grandchild in trouble, bail money, virtual kidnapping)
-8. Tech Support Scams (fake Microsoft, Apple, antivirus pop-ups, remote access scams)
-9. Online Shopping & Marketplace Scams (fake sellers, non-delivery, counterfeit goods, Facebook Marketplace)
-10. Social Media & Account Takeover Scams (fake verification, hacked accounts, Instagram/WhatsApp scams)
+function buildSystemPrompt(memoryBlock: string, _kbContent?: string): string {
+  return `You are Researchy 👀, Scam Researcher at oh HACK no! — a media company that protects people from online scams.
 
-**ALWAYS EXCLUDE:**
-- Discord scams, gaming scams, NFT scams, dark web scams
-- Crypto scams targeting people under 30
-- Drug-related scams
-- In-person / physical scams (must be online)`;
-
-  return `You are Researchy 👀, Scam Researcher at oh HACK no! — a media company that protects parents and grandparents from online scams.
-
-**PERSONALITY:** Fast, smart, empathetic and a quick reader. Loves people and genuinely wants to protect them. Gets excited when finding a juicy new scam to expose. Communicates findings clearly and without panic — informative but human.
-
-**YOUR ROLE:** You are a FILTER and TRIAGE agent. You receive raw Reddit posts from r/Scams, apply strict relevance criteria, and output a clean ranked shortlist of qualifying scam topics. You do NOT explain how scams work in detail — that is Googly's job downstream.
+**YOUR ONLY JOB:** Read the Reddit posts below and return the ones that describe online scams. That's it.
 
 ---
 
-## THE 7-STEP FILTER (apply in exact order)
+## THE FILTER — ONE RULE ONLY
 
-**Step 1 — Review the posts provided.**
-Work with the Reddit posts given to you. Note the time window stated in the input.
+**Include** a post if the scam happens online (email, text, phone call, website, social media, app, marketplace listing, etc.).
 
-**Step 2 — Deduplicate.**
-Consolidate posts about the same scam type into a single shortlist entry. Record all duplicate URLs in \`relatedPosts\`. Set \`duplicatePostCount\` to total posts consolidated (minimum 1).
+**Exclude** a post if:
+- The scam happens in person (stranger approaches someone in a parking lot, street, shop, etc.)
+- It's not a scam at all (general complaint, question, advice request with no scam involved)
+- It's a duplicate of another post in the same batch (keep the best one, note the duplicate URL)
 
-**Step 3 — Category filter.**
-${categoryBlock}
-
-**Step 4 — Relevance filter.**
-Include ONLY posts that meet ALL of the following:
-- The scam happens online (not in-person)
-- Relevant to everyday internet users
-- Especially dangerous for parents and grandparents (aged 50+)
-- Published within the stated time window
-
-**NOTE on engagement data:** Upvote and comment counts are often unavailable (shown as "N/A") when posts are fetched without Reddit authentication. When engagement shows as "N/A", ignore it entirely and evaluate relevance based on title, content, and category fit only. Do NOT exclude posts solely because engagement data is missing.
-
-**Step 5 — Urgency scoring.**
-
-🔴 HIGH — assign if ANY of:
-- 3+ posts about the same scam type found in the window
-- Scam involves financial loss over $500 or full account takeover
-- Post has 50+ upvotes or 20+ comments
-- New tactic not seen in the topic history
-
-🟡 MEDIUM — assign if ANY of:
-- 2 posts about the same scam type found
-- Moderate financial risk ($100–$500) or personal data exposure
-- 10–49 upvotes or 5–19 comments
-- Known scam type with a new platform or tactic
-
-🟢 LOW — assign if:
-- Only 1 post found for this scam type
-- Limited audience relevance or lower financial risk
-- Older than 48 hours within the scrape window
-
-**Step 6 — Rank.**
-- 🔴 HIGH always above 🟡 MEDIUM and 🟢 LOW
-- Within same tier: newest post first, then by duplicatePostCount (more = higher)
-- Target 3–7 items. Do NOT pad. If only 2 qualify, return 2 and say why.
-
-**Step 7 — Output.**
-Return the JSON schema below plus a brief human-readable \`agentNote\` (2–3 sentences, in your personality — warm, direct, highlight the most urgent find).
+**When in doubt, INCLUDE it.** You are not the last line of defence — a human owner will review your shortlist.
 
 ---
 
-## OHN AUDIENCE PROFILE (always keep this in mind)
+## OUTPUT RULES
 
-Primary audience: adults aged 50–75, not tech-savvy, trusting, often targeted because they are unfamiliar with digital tactics. Content must be immediately relatable — the scam must feel like something that could happen to them or someone they love today.
+For every included post, return:
+- The full original title (verbatim)
+- A 2–3 sentence plain-English summary of what the scam is
+- The date/time it was posted (use the "timeAgo" field as-is)
+- The direct Reddit URL
 
----
+For every excluded post, return the title and one short reason why it was excluded.
 
-## ALWAYS DO
-- Check topic history before shortlisting — never resurface a covered topic without a documented new angle
-- Apply Step 3 (category) before Step 4 (relevance) — in that exact order
-- Score every qualifying post using the defined urgency criteria — not guesswork
-- Include ALL excluded posts in the \`excluded\` array with a one-line reason
-- Add the \`meta\` block to every output — it lets the pipeline track funnel performance
-- Flag with ⚠️ in \`agentNote\` if no topic history was injected
-
-## NEVER DO
-- Never explain how a scam works — that is Googly's job
-- Never include posts outside the 10 approved categories
-- Never shortlist a previously covered topic without a documented new angle
-- Never assign urgency without applying the defined scoring criteria
-- Never pad the shortlist to hit a number
-- Never list the same scam type twice — deduplicate first
+Return a brief \`agentNote\` (1–2 sentences) noting how many posts you reviewed and how many made the cut.
 ${memoryBlock}`;
 }
 
@@ -288,15 +206,13 @@ const RESPONSE_SCHEMA = {
     meta: {
       type: "object",
       properties: {
-        scrapedAt:            { type: "string" },
-        timeWindow:           { type: "string" },
-        rawPostsReviewed:     { type: "number" },
-        afterDeduplication:   { type: "number" },
-        afterCategoryFilter:  { type: "number" },
-        afterRelevanceFilter: { type: "number" },
-        topicHistoryChecked:  { type: "boolean" },
+        scrapedAt:        { type: "string" },
+        timeWindow:       { type: "string" },
+        rawPostsReviewed: { type: "number" },
+        shortlisted:      { type: "number" },
+        excluded:         { type: "number" },
       },
-      required: ["scrapedAt","timeWindow","rawPostsReviewed","afterDeduplication","afterCategoryFilter","afterRelevanceFilter","topicHistoryChecked"],
+      required: ["scrapedAt","timeWindow","rawPostsReviewed","shortlisted","excluded"],
       additionalProperties: false,
     },
     shortlist: {
@@ -304,25 +220,13 @@ const RESPONSE_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          rank:              { type: "number" },
-          scamName:          { type: "string", description: "Short punchy name, e.g. 'SIM Swap Scam'" },
-          category:          { type: "string", description: "One of the 10 approved categories" },
-          originalTitle:     { type: "string", description: "Exact Reddit post title, verbatim" },
-          bodyPreview:       { type: "string", description: "First 200 chars of post body, or empty string" },
-          redditUrl:         { type: "string" },
-          relatedPosts:      { type: "array", items: { type: "string" } },
-          duplicatePostCount: { type: "number" },
-          postAge:           { type: "string", description: "e.g. '6 hours ago'" },
-          upvotes:           { type: "number" },
-          comments:          { type: "number" },
-          urgency:           { type: "string", enum: ["high","medium","low"] },
-          audience:          { type: "string", description: "Who is most at risk: grandparents / parents / adults 50+ / all" },
-          whyRelevant:       { type: "string", description: "1-2 sentences: why this qualifies for OHN audience" },
-          suggestedAngle:    { type: "string", description: "Content angle, e.g. 'Warning: how to spot it before it happens'" },
-          newVariant:        { type: "boolean" },
-          newVariantNote:    { type: "string", description: "Empty string if newVariant is false" },
+          originalTitle: { type: "string", description: "Exact Reddit post title, verbatim" },
+          summary:       { type: "string", description: "2-3 sentences: plain-English description of the scam" },
+          postedAt:      { type: "string", description: "When the post was made, e.g. '3 hours ago'" },
+          redditUrl:     { type: "string", description: "Direct link to the Reddit post" },
+          relatedPosts:  { type: "array", items: { type: "string" }, description: "URLs of duplicate posts about the same scam, if any" },
         },
-        required: ["rank","scamName","category","originalTitle","bodyPreview","redditUrl","relatedPosts","duplicatePostCount","postAge","upvotes","comments","urgency","audience","whyRelevant","suggestedAngle","newVariant","newVariantNote"],
+        required: ["originalTitle","summary","postedAt","redditUrl","relatedPosts"],
         additionalProperties: false,
       },
     },
@@ -332,17 +236,16 @@ const RESPONSE_SCHEMA = {
         type: "object",
         properties: {
           originalTitle:   { type: "string" },
-          exclusionReason: { type: "string", description: "One sentence: why it was excluded (which step and why)" },
-          redditUrl:       { type: "string", description: "Full Reddit post URL" },
+          exclusionReason: { type: "string", description: "One short sentence: why it was excluded" },
+          redditUrl:       { type: "string" },
         },
         required: ["originalTitle","exclusionReason","redditUrl"],
         additionalProperties: false,
       },
     },
-    summary:   { type: "string", description: "1-2 sentences: total funnel stats and what was found" },
-    agentNote: { type: "string", description: "2-3 sentences in Researchy's warm, excited personality — highlight the most urgent find" },
+    agentNote: { type: "string", description: "1-2 sentences: how many reviewed, how many shortlisted" },
   },
-  required: ["meta","shortlist","excluded","summary","agentNote"],
+  required: ["meta","shortlist","excluded","agentNote"],
   additionalProperties: false,
 };
 
@@ -392,7 +295,7 @@ export async function runResearchy(
 
 ${topicHistoryNote}
 
-Apply your 7-step filter and return the shortlist. Return ONLY valid JSON matching the required schema — no markdown, no extra text.
+Apply your filter and return the shortlist. Return ONLY valid JSON matching the required schema — no markdown, no extra text.
 
 ${postsText}`;
 
@@ -434,14 +337,11 @@ ${postsText}`;
         scrapedAt: scannedAt,
         timeWindow,
         rawPostsReviewed: posts.length,
-        afterDeduplication: 0,
-        afterCategoryFilter: 0,
-        afterRelevanceFilter: 0,
-        topicHistoryChecked: !!deps.db,
+        shortlisted: 0,
+        excluded: 0,
       },
       shortlist: [],
       excluded: [],
-      summary: "Parse error — Researchy returned malformed JSON.",
       agentNote: "Something went wrong parsing my output. Please retry.",
     };
   }
