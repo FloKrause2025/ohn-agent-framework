@@ -40,7 +40,22 @@ function makeInvokeLLM() {
   return async (params: LLMInvokeParams) => {
     const systemMsg = params.messages.find(m => m.role === "system")?.content ?? "";
     const userMsgs  = params.messages.filter(m => m.role !== "system");
-    const model     = params.model ?? "claude-haiku-4-5-20251001";
+
+    // Thinking requires Sonnet or Opus — auto-upgrade from Haiku if needed
+    const requestedModel = params.model ?? "claude-haiku-4-5-20251001";
+    const model = params.thinking && requestedModel.includes("haiku")
+      ? "claude-sonnet-4-6"
+      : requestedModel;
+
+    // When thinking is enabled: max_tokens must exceed budget_tokens
+    const maxTokens = params.thinking
+      ? Math.max(16000, params.thinking.budget_tokens + 8000)
+      : 4096;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const thinkingParam = params.thinking
+      ? { type: "enabled" as const, budget_tokens: params.thinking.budget_tokens }
+      : undefined;
 
     // Anthropic doesn't support response_format — use tool_use to enforce schema
     if (params.response_format?.type === "json_schema") {
@@ -49,7 +64,8 @@ function makeInvokeLLM() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const response = await (anthropic.messages.create as any)({
         model,
-        max_tokens: 4096,
+        max_tokens: maxTokens,
+        ...(thinkingParam ? { thinking: thinkingParam } : {}),
         system: systemMsg,
         messages: userMsgs.map(m => ({ role: m.role, content: m.content })),
         tools: [{
@@ -60,21 +76,34 @@ function makeInvokeLLM() {
         tool_choice: { type: "tool", name },
       });
 
-      // Extract the tool input as JSON string
-      const toolBlock = response.content?.find((b: { type: string }) => b.type === "tool_use");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const blocks = response.content as Array<{ type: string; input?: unknown; thinking?: string }>;
+      const toolBlock    = blocks.find(b => b.type === "tool_use");
+      const thinkingBlock = blocks.find(b => b.type === "thinking");
       const json = toolBlock ? JSON.stringify(toolBlock.input) : "{}";
-      return { choices: [{ message: { content: json } }] };
+      return {
+        choices: [{ message: { content: json } }],
+        thinking: thinkingBlock?.thinking,
+      };
     }
 
     // No schema required — plain text response
-    const response = await anthropic.messages.create({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await (anthropic.messages.create as any)({
       model,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
+      ...(thinkingParam ? { thinking: thinkingParam } : {}),
       system: systemMsg,
-      messages: userMsgs.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
+      messages: userMsgs.map(m => ({ role: m.role, content: m.content })),
     });
-    const text = response.content[0]?.type === "text" ? response.content[0].text : "";
-    return { choices: [{ message: { content: text } }] };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks = response.content as Array<{ type: string; text?: string; thinking?: string }>;
+    const textBlock     = blocks.find(b => b.type === "text");
+    const thinkingBlock = blocks.find(b => b.type === "thinking");
+    return {
+      choices: [{ message: { content: textBlock?.text ?? "" } }],
+      thinking: thinkingBlock?.thinking,
+    };
   };
 }
 

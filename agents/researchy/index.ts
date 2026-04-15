@@ -31,10 +31,16 @@ export interface LLMInvokeParams {
       schema: Record<string, unknown>;
     };
   };
+  /** Enable extended thinking. Model is auto-upgraded to Sonnet if Haiku is specified. */
+  thinking?: {
+    budget_tokens: number;
+  };
 }
 
 export interface LLMResponse {
   choices: Array<{ message: { content: string | null } }>;
+  /** Extended thinking text — present when thinking was enabled in the request */
+  thinking?: string;
 }
 
 // ─── Reddit Post Types ────────────────────────────────────────────────────────
@@ -93,6 +99,8 @@ export interface ResearchyResult {
   excluded: ExcludedPost[];
   summary: string;
   agentNote: string;
+  /** Extended thinking text — populated when thinking is enabled, not part of LLM schema */
+  thinking?: string;
 }
 
 // ─── DB Adapter Types ─────────────────────────────────────────────────────────
@@ -382,14 +390,15 @@ Apply your 7-step filter and return the shortlist. Return ONLY valid JSON matchi
 ${postsText}`;
 
   log?.debug("researchy", "User message sent to LLM", { userMessage });
-  log?.info("researchy", `Calling LLM (claude-haiku-4-5) with ${posts.slice(0, 50).length} posts`);
+  log?.info("researchy", `Calling LLM (claude-sonnet-4-6 with extended thinking) with ${posts.slice(0, 50).length} posts`);
 
   const response = await deps.invokeLLM({
-    model: "claude-haiku-4-5-20251001",
+    model: "claude-sonnet-4-6",
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user",   content: userMessage },
     ],
+    thinking: { budget_tokens: 8000 },
     response_format: {
       type: "json_schema",
       json_schema: {
@@ -403,8 +412,13 @@ ${postsText}`;
   const raw = response.choices[0]?.message?.content ?? "{}";
   log?.debug("researchy", "Raw LLM response", { raw });
 
+  if (response.thinking) {
+    log?.debug("researchy", "Extended thinking", { thinking: response.thinking });
+  }
+
   try {
     const parsed = JSON.parse(raw) as ResearchyResult;
+    if (response.thinking) parsed.thinking = response.thinking;
     log?.info("researchy", `Parse OK — shortlist: ${parsed.shortlist?.length ?? 0}, excluded: ${parsed.excluded?.length ?? 0}`);
     return parsed;
   } catch (err) {

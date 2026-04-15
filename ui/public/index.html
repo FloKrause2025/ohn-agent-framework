@@ -469,6 +469,43 @@
       color: #fca5a5;
     }
 
+    /* ── Thinking Block ──────────────────────────────────────────────────── */
+    .thinking-toggle {
+      background: linear-gradient(135deg, #1a1035 0%, #0f172a 100%);
+      border: 1px solid #4c1d95;
+      border-radius: 8px;
+      color: #a78bfa;
+      font-size: 12px;
+      padding: 8px 14px;
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .thinking-toggle:hover { border-color: #7c3aed; color: #c4b5fd; }
+    .thinking-toggle .think-label { display: flex; align-items: center; gap: 6px; }
+    .thinking-panel {
+      display: none;
+      background: #0d0b1a;
+      border: 1px solid #4c1d95;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      padding: 14px 16px;
+      font-size: 12px;
+      color: #c4b5fd;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .thinking-panel.open { display: block; }
+    .thinking-panel::-webkit-scrollbar { width: 4px; }
+    .thinking-panel::-webkit-scrollbar-thumb { background: #4c1d95; border-radius: 2px; }
+
     /* ── Pipeline Logs ───────────────────────────────────────────────────── */
     .logs-toggle {
       background: transparent;
@@ -742,6 +779,28 @@
     scrollBottom();
   }
 
+  // ── Thinking Block ─────────────────────────────────────────────────────────
+  function buildThinkingHtml(thinking) {
+    if (!thinking) return '';
+    const id = 'thinking-' + Date.now();
+    return `
+      <div>
+        <button class="thinking-toggle" onclick="toggleThinking('${id}')">
+          <span class="think-label">🧠 <strong>Thought Process</strong> — click to see how Researchy reasoned through this</span>
+          <span>▼</span>
+        </button>
+        <div class="thinking-panel" id="${id}">${escHtml(thinking)}</div>
+      </div>`;
+  }
+
+  function toggleThinking(id) {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    panel.classList.toggle('open');
+    const btn = panel.previousElementSibling;
+    if (btn) btn.querySelector('span:last-child').textContent = panel.classList.contains('open') ? '▲' : '▼';
+  }
+
   // ── Pipeline Logs ──────────────────────────────────────────────────────────
   function buildLogsHtml(logs) {
     if (!logs || logs.length === 0) return '';
@@ -837,6 +896,9 @@
       <div class="msg-meta">Researchy 👀</div>
       <div class="bubble">
         <div class="result-wrap">
+
+          <!-- Thinking block -->
+          ${buildThinkingHtml(result.thinking)}
 
           <!-- Funnel stats -->
           <div class="funnel-card">
