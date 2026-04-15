@@ -163,9 +163,16 @@ app.post("/api/chat", async (req, res) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`\n🚀  OHN Agent UI running at http://localhost:${PORT}`);
-  console.log(`    Anthropic API key: ${API_KEY.slice(0, 12)}...`);
-  console.log(`    Agents live: researchy`);
-  console.log(`    Press Ctrl+C to stop\n`);
-});
+// On Vercel the app is exported as a serverless handler — no listen() needed.
+// Locally (npm start / tsx ui/server.ts) we listen normally.
+if (!process.env.VERCEL) {
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`\n🚀  OHN Agent UI running at http://localhost:${PORT}`);
+    console.log(`    Anthropic API key: ${API_KEY.slice(0, 12)}...`);
+    console.log(`    Agents live: researchy`);
+    console.log(`    Press Ctrl+C to stop\n`);
+  });
+}
+
+// Vercel serverless handler
+export default app;
