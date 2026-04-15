@@ -168,21 +168,16 @@ app.post("/api/chat", async (req, res) => {
       logger.info("server", `Request received — agentId: ${agentId}`);
 
       const redditConfig: RedditScrapingConfig = {
-        redditClientId:     process.env.REDDIT_CLIENT_ID,
-        redditClientSecret: process.env.REDDIT_CLIENT_SECRET,
-        serperApiKey:       process.env.SERPER_API_KEY,
+        serperApiKey: process.env.SERPER_API_KEY ?? "",
         logger,
       };
 
       const fetched = await fetchRedditScamPosts(redditConfig);
 
       if (fetched.posts.length === 0) {
-        const hasSerper = !!process.env.SERPER_API_KEY;
-        logger.error("server", "Reddit returned 0 posts", { authMethod: fetched.authMethod, queriesUsed: fetched.queriesUsed, hasSerper });
+        logger.error("server", "Serper returned 0 posts", { queriesUsed: fetched.queriesUsed });
         res.status(502).json({
-          error: hasSerper
-            ? "Serper returned no results and Reddit is blocking this server's IP. Check your SERPER_API_KEY in Vercel settings."
-            : "Reddit is blocking requests from this server's IP (common on Vercel/AWS). Fix: add SERPER_API_KEY to your Vercel environment variables. Get a free key at serper.dev (2,500 free searches/month).",
+          error: "Serper returned no results. Check your SERPER_API_KEY in Vercel settings.",
           logs: logger.entries,
         });
         return;
@@ -209,7 +204,7 @@ app.post("/api/chat", async (req, res) => {
         agentId,
         type: "researchy",
         result,
-        meta: { postsFetched: fetched.posts.length, authMethod: fetched.authMethod },
+        meta: { postsFetched: fetched.posts.length },
         logs: logger.entries,
       });
       return;
