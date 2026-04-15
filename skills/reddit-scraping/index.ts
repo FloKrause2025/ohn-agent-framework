@@ -146,18 +146,26 @@ function extractPostId(url: string): string | null {
  * https://www.reddit.com/r/Scams/new.json returns up to 100 posts
  * including their flair, selftext, upvotes, and comment counts.
  * No auth needed, no search query, no rate-limit issues.
+ *
+ * NOTE: Reddit blocks requests from known cloud/hosting IPs (AWS, Vercel, etc.).
+ * Returns { posts, status } so callers can log the actual HTTP status for debugging.
  */
 async function fetchListingDirect(
   sort: "new" | "hot",
   limit: number
-): Promise<DiscoveredPost[]> {
+): Promise<{ posts: DiscoveredPost[]; status: number | null; error?: string }> {
   try {
     const url = `https://www.reddit.com/r/Scams/${sort}.json?limit=${limit}&raw_json=1`;
     const res = await fetch(url, {
-      headers: { "User-Agent": "OHN-Content-Pipeline/1.0" },
+      headers: {
+        // Reddit requires a descriptive User-Agent — generic strings get blocked
+        "User-Agent": "Mozilla/5.0 (compatible; OHN-Scam-Monitor/1.0; +https://ohhackno.com)",
+      },
       signal: AbortSignal.timeout(12_000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      return { posts: [], status: res.status, error: `HTTP ${res.status} ${res.statusText}` };
+    }
 
     const data = (await res.json()) as {
       data?: {
@@ -177,7 +185,7 @@ async function fetchListingDirect(
       };
     };
 
-    return (data?.data?.children ?? [])
+    const mapped = (data?.data?.children ?? [])
       .filter((c) => c.data?.permalink)
       .map((c) => {
         const d = c.data!;
@@ -192,7 +200,6 @@ async function fetchListingDirect(
           snippet: selftext || d.link_flair_text || "",
           date: createdAgo,
           selftext,
-          // Carry enriched data so we can skip the enrichment network call
           _score: d.score ?? 0,
           _comments: d.num_comments ?? 0,
           _upvoteRatio: d.upvote_ratio ?? 0,
@@ -206,8 +213,9 @@ async function fetchListingDirect(
           _flair: string;
         };
       });
-  } catch {
-    return [];
+    return { posts: mapped, status: res.status };
+  } catch (err) {
+    return { posts: [], status: null, error: String(err) };
   }
 }
 
@@ -350,14 +358,23 @@ export async function fetchRedditScamPosts(
   const discovered: DiscoveredPost[] = [];
 
   // ── Phase 0: Direct listing (no auth required, returns real data) ─────────
-  const [newPosts, hotPosts] = await Promise.all([
+  const [newResult, hotResult] = await Promise.all([
     fetchListingDirect("new", 50),
     fetchListingDirect("hot", 25),
   ]);
   queriesUsed.push("r/Scams/new (listing)", "r/Scams/hot (listing)");
-  log?.info("reddit", `Phase 0 listing: /new returned ${newPosts.length} posts, /hot returned ${hotPosts.length} posts`);
 
-  for (const post of [...newPosts, ...hotPosts]) {
+  // Log actual HTTP status — if Reddit is blocking (403/429/503) this will show it
+  log?.info("reddit", `Phase 0 listing: /new → HTTP ${newResult.status ?? "error"} (${newResult.posts.length} posts)${newResult.error ? ` — ${newResult.error}` : ""}`, {
+    newStatus: newResult.status, hotStatus: hotResult.status,
+    newError: newResult.error, hotError: hotResult.error,
+  });
+
+  if (newResult.status && newResult.status !== 200) {
+    log?.warn("reddit", `Reddit returned HTTP ${newResult.status} — likely blocking this server's IP. Add SERPER_API_KEY as fallback.`);
+  }
+
+  for (const post of [...newResult.posts, ...hotResult.posts]) {
     if (!post.url || seen.has(post.url)) continue;
     if (!/\/r\/[Ss]cams\/comments\//.test(post.url)) continue;
     seen.add(post.url);
@@ -365,27 +382,11 @@ export async function fetchRedditScamPosts(
   }
   log?.info("reddit", `After dedup: ${discovered.length} unique posts`);
 
-  // ── Phase 1: Flair feeds (if OAuth available and need more posts) ─────────
-  if (token && discovered.length < 30) {
-    const flairResults = await Promise.all(
-      FLAIR_FEEDS.map((flair) => fetchFlairFeed(flair, 25, token))
-    );
-    queriesUsed.push(...FLAIR_FEEDS.map((f) => `r/Scams flair: "${f}"`));
-    log?.info("reddit", `Phase 1 flair feeds returned ${flairResults.flat().length} additional posts`);
-
-    for (const posts of flairResults) {
-      for (const post of posts) {
-        if (!post.url || seen.has(post.url)) continue;
-        if (!/\/r\/[Ss]cams\/comments\//.test(post.url)) continue;
-        seen.add(post.url);
-        discovered.push(post);
-      }
-    }
-  }
-
-  // ── Phase 2: Serper fallback (if still not enough) ───────────────────────
-  if (discovered.length < 15 && config.serperApiKey) {
-    log?.info("reddit", "Phase 2: falling back to Serper (too few posts from listing)");
+  // ── Phase 1: Serper (runs first if key is set — immune to Reddit IP blocks) ─
+  // Reddit actively blocks requests from cloud hosting IPs (Vercel/AWS/etc).
+  // Serper routes through Google Search, bypassing Reddit's IP restrictions entirely.
+  if (config.serperApiKey && discovered.length < 30) {
+    log?.info("reddit", "Phase 1: fetching via Serper (bypasses Reddit IP blocks on cloud hosts)");
     const searchResults = await Promise.all(
       SERPER_QUERIES.map(({ q, tbs, num }) =>
         fetch("https://google.serper.dev/search", {
@@ -403,12 +404,33 @@ export async function fetchRedditScamPosts(
     );
     queriesUsed.push(...SERPER_QUERIES.map((q) => q.q));
 
+    let serperCount = 0;
     for (const result of searchResults) {
       for (const item of result.organic ?? []) {
         if (!/\/r\/[Ss]cams\/comments\//.test(item.link)) continue;
         if (seen.has(item.link)) continue;
         seen.add(item.link);
         discovered.push({ title: item.title, url: item.link, snippet: item.snippet ?? "", date: item.date ?? "recent", selftext: item.snippet ?? "" });
+        serperCount++;
+      }
+    }
+    log?.info("reddit", `Phase 1 Serper: added ${serperCount} posts`);
+  }
+
+  // ── Phase 2: Flair feeds (OAuth only, supplements if still need more) ─────
+  if (token && discovered.length < 30) {
+    const flairResults = await Promise.all(
+      FLAIR_FEEDS.map((flair) => fetchFlairFeed(flair, 25, token))
+    );
+    queriesUsed.push(...FLAIR_FEEDS.map((f) => `r/Scams flair: "${f}"`));
+    log?.info("reddit", `Phase 2 flair feeds returned ${flairResults.flat().length} additional posts`);
+
+    for (const posts of flairResults) {
+      for (const post of posts) {
+        if (!post.url || seen.has(post.url)) continue;
+        if (!/\/r\/[Ss]cams\/comments\//.test(post.url)) continue;
+        seen.add(post.url);
+        discovered.push(post);
       }
     }
   }
