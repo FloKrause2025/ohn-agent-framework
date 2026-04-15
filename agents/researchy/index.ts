@@ -81,6 +81,7 @@ export interface ShortlistedTopic {
 export interface ExcludedPost {
   originalTitle: string;
   exclusionReason: string;
+  redditUrl: string;
 }
 
 export interface ResearchyMeta {
@@ -329,10 +330,11 @@ const RESPONSE_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          originalTitle:    { type: "string" },
-          exclusionReason:  { type: "string", description: "One sentence: why it was excluded (which step and why)" },
+          originalTitle:   { type: "string" },
+          exclusionReason: { type: "string", description: "One sentence: why it was excluded (which step and why)" },
+          redditUrl:       { type: "string", description: "Full Reddit post URL" },
         },
-        required: ["originalTitle","exclusionReason"],
+        required: ["originalTitle","exclusionReason","redditUrl"],
         additionalProperties: false,
       },
     },

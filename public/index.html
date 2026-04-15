@@ -742,7 +742,7 @@
         addAgentMessage(data.error ?? 'Something went wrong.', 'error');
         if (data.logs) renderLogsPanel(data.logs);
       } else if (data.type === 'researchy') {
-        renderResearchyResult(data.result, data.logs ?? []);
+        renderResearchyResult(data.result, data.logs ?? [], data.runId);
       } else {
         addAgentMessage(data.result?.message ?? 'No response.', 'text');
       }
@@ -848,7 +848,7 @@
     document.getElementById(id)?.classList.toggle('open');
   }
 
-  function renderResearchyResult(result, logs = []) {
+  function renderResearchyResult(result, logs = [], runId = null) {
     const msgs = document.getElementById('messages');
     const div  = document.createElement('div');
     div.className = 'msg agent';
@@ -890,12 +890,19 @@
       <div class="excluded-item">
         <div class="ex-title">${escHtml(e.originalTitle)}</div>
         <div class="ex-reason">→ ${escHtml(e.exclusionReason)}</div>
+        ${e.redditUrl ? `<div style="margin-top:4px;font-size:10px;"><a href="${escHtml(e.redditUrl)}" target="_blank" style="color:#60a5fa;">View on Reddit →</a></div>` : ''}
       </div>`).join('');
 
     div.innerHTML = `
       <div class="msg-meta">Researchy 👀</div>
       <div class="bubble">
         <div class="result-wrap">
+
+          <!-- Run ID — share with Claude for context -->
+          ${runId ? `<div style="font-family:monospace;font-size:10px;color:#475569;background:#0a0f1a;border:1px solid #1e293b;border-radius:6px;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;">
+            <span>🆔 Run ID: <strong style="color:#64748b;">${escHtml(runId)}</strong></span>
+            <button onclick="navigator.clipboard.writeText('${escHtml(runId)}')" style="background:transparent;border:1px solid #334155;border-radius:4px;color:#64748b;font-size:9px;padding:2px 7px;cursor:pointer;">Copy</button>
+          </div>` : ''}
 
           <!-- Thinking block -->
           ${buildThinkingHtml(result.thinking)}

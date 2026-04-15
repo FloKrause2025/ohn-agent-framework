@@ -110,6 +110,35 @@ function makeInvokeLLM() {
   };
 }
 
+// ─── Result Store ─────────────────────────────────────────────────────────────
+// In-memory cache — Vercel keeps function instances warm for ~5-10 min.
+// Good enough for "just ran it, share with Claude" workflow.
+
+interface StoredRun {
+  runId: string;
+  agentId: string;
+  timestamp: string;
+  result: unknown;
+  logs: unknown;
+  meta: unknown;
+}
+
+const resultStore = new Map<string, StoredRun>();
+const MAX_STORED = 20;
+
+function storeRun(run: StoredRun): void {
+  if (resultStore.size >= MAX_STORED) {
+    // Drop the oldest entry
+    const oldest = resultStore.keys().next().value;
+    if (oldest) resultStore.delete(oldest);
+  }
+  resultStore.set(run.runId, run);
+}
+
+function generateRunId(): string {
+  return `run_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
 // ─── Express App ──────────────────────────────────────────────────────────────
 
 const app = express();
@@ -132,6 +161,16 @@ app.get("/api/agents", (_req, res) => {
     { id: "addy",           name: "Addy",             emoji: "🎯", status: "coming_soon", description: "Ad Analyzer — angles, winners and stops" },
     { id: "paid-marketing", name: "PaidMarketing",    emoji: "💰", status: "coming_soon", description: "Paid Media Strategist — full campaign recommendations" },
   ]);
+});
+
+// Result lookup endpoint — lets Claude fetch a run by ID
+app.get("/api/result/:runId", (req, res) => {
+  const run = resultStore.get(req.params.runId);
+  if (!run) {
+    res.status(404).json({ error: "Run not found. Results are cached for ~10 minutes — try running the agent again." });
+    return;
+  }
+  res.json(run);
 });
 
 // Main chat endpoint
@@ -185,13 +224,18 @@ app.post("/api/chat", async (req, res) => {
         { invokeLLM: makeInvokeLLM(), logger }
       );
 
-      logger.info("server", "Request complete");
+      const runId = generateRunId();
+      const meta = { postsFetched: fetched.posts.length, authMethod: fetched.authMethod };
+      storeRun({ runId, agentId, timestamp: new Date().toISOString(), result, logs: logger.entries, meta });
+
+      logger.info("server", `Request complete — runId: ${runId}`);
       res.json({
         agentId,
         type: "researchy",
         result,
-        meta: { postsFetched: fetched.posts.length, authMethod: fetched.authMethod },
+        meta,
         logs: logger.entries,
+        runId,
       });
       return;
     }
