@@ -73,7 +73,9 @@ function makeInvokeLLM() {
           description: `Return structured output matching the ${name} schema.`,
           input_schema: schema,
         }],
-        tool_choice: { type: "tool", name },
+        // "any" = must use a tool (compatible with thinking); "tool" = force specific tool (incompatible)
+        // Since only one tool is defined, "any" always picks the right one.
+        tool_choice: thinkingParam ? { type: "any" } : { type: "tool", name },
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
