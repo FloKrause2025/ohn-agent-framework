@@ -57,6 +57,12 @@ interface DiscoveredPost {
   snippet: string;
   date: string;
   selftext: string;
+  // Pre-populated from listing endpoint (avoids second network call per post)
+  _score?: number;
+  _comments?: number;
+  _upvoteRatio?: number;
+  _author?: string;
+  _flair?: string;
 }
 
 // ─── OAuth Token Cache (module-level, reused across calls) ───────────────────
@@ -130,6 +136,76 @@ function extractPostId(url: string): string | null {
 }
 
 // ─── Reddit API Calls ─────────────────────────────────────────────────────────
+
+/**
+ * Phase 0: Direct listing fetch — works without OAuth.
+ * https://www.reddit.com/r/Scams/new.json returns up to 100 posts
+ * including their flair, selftext, upvotes, and comment counts.
+ * No auth needed, no search query, no rate-limit issues.
+ */
+async function fetchListingDirect(
+  sort: "new" | "hot",
+  limit: number
+): Promise<DiscoveredPost[]> {
+  try {
+    const url = `https://www.reddit.com/r/Scams/${sort}.json?limit=${limit}&raw_json=1`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "OHN-Content-Pipeline/1.0" },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!res.ok) return [];
+
+    const data = (await res.json()) as {
+      data?: {
+        children?: Array<{
+          data?: {
+            title?: string;
+            permalink?: string;
+            selftext?: string;
+            created_utc?: number;
+            link_flair_text?: string;
+            score?: number;
+            num_comments?: number;
+            upvote_ratio?: number;
+            author?: string;
+          };
+        }>;
+      };
+    };
+
+    return (data?.data?.children ?? [])
+      .filter((c) => c.data?.permalink)
+      .map((c) => {
+        const d = c.data!;
+        const permalink = `https://www.reddit.com${d.permalink}`;
+        const selftext = (d.selftext ?? "").slice(0, 300);
+        const createdAgo = d.created_utc
+          ? `${Math.round((Date.now() / 1000 - d.created_utc) / 3600)}h ago`
+          : "recent";
+        return {
+          title: d.title ?? "",
+          url: permalink,
+          snippet: selftext || d.link_flair_text || "",
+          date: createdAgo,
+          selftext,
+          // Carry enriched data so we can skip the enrichment network call
+          _score: d.score ?? 0,
+          _comments: d.num_comments ?? 0,
+          _upvoteRatio: d.upvote_ratio ?? 0,
+          _author: d.author ?? "r/Scams",
+          _flair: d.link_flair_text ?? "",
+        } as DiscoveredPost & {
+          _score: number;
+          _comments: number;
+          _upvoteRatio: number;
+          _author: string;
+          _flair: string;
+        };
+      });
+  } catch {
+    return [];
+  }
+}
 
 async function enrichPost(
   url: string,
@@ -254,7 +330,7 @@ export async function fetchRedditScamPosts(
   config: RedditScrapingConfig
 ): Promise<RedditFetchResult> {
   const scannedAt = new Date().toISOString();
-  const queriesUsed: string[] = FLAIR_FEEDS.map((f) => `r/Scams flair: "${f}"`);
+  const queriesUsed: string[] = [];
 
   // ── OAuth token ───────────────────────────────────────────────────────────
   let token: string | null = null;
@@ -262,24 +338,45 @@ export async function fetchRedditScamPosts(
     token = await getOAuthToken(config.redditClientId, config.redditClientSecret);
   }
 
-  // ── Phase 1: Flair feeds ──────────────────────────────────────────────────
-  const flairResults = await Promise.all(
-    FLAIR_FEEDS.map((flair) => fetchFlairFeed(flair, 25, token))
-  );
-
   const seen = new Set<string>();
   const discovered: DiscoveredPost[] = [];
 
-  for (const posts of flairResults) {
-    for (const post of posts) {
-      if (!post.url || seen.has(post.url)) continue;
-      if (!/\/r\/[Ss]cams\/comments\//.test(post.url)) continue;
-      seen.add(post.url);
-      discovered.push(post);
+  // ── Phase 0: Direct listing (no auth required, returns real data) ─────────
+  // Fetches r/Scams/new and r/Scams/hot directly — no flair query, no OAuth.
+  // Reddit's listing API always works for public subreddits and includes
+  // score, num_comments, flair, and author in the response payload itself,
+  // so no per-post enrichment calls are needed for these.
+  const [newPosts, hotPosts] = await Promise.all([
+    fetchListingDirect("new", 50),
+    fetchListingDirect("hot", 25),
+  ]);
+  queriesUsed.push("r/Scams/new (listing)", "r/Scams/hot (listing)");
+
+  for (const post of [...newPosts, ...hotPosts]) {
+    if (!post.url || seen.has(post.url)) continue;
+    if (!/\/r\/[Ss]cams\/comments\//.test(post.url)) continue;
+    seen.add(post.url);
+    discovered.push(post);
+  }
+
+  // ── Phase 1: Flair feeds (if OAuth available and need more posts) ─────────
+  if (token && discovered.length < 30) {
+    const flairResults = await Promise.all(
+      FLAIR_FEEDS.map((flair) => fetchFlairFeed(flair, 25, token))
+    );
+    queriesUsed.push(...FLAIR_FEEDS.map((f) => `r/Scams flair: "${f}"`));
+
+    for (const posts of flairResults) {
+      for (const post of posts) {
+        if (!post.url || seen.has(post.url)) continue;
+        if (!/\/r\/[Ss]cams\/comments\//.test(post.url)) continue;
+        seen.add(post.url);
+        discovered.push(post);
+      }
     }
   }
 
-  // ── Phase 2: Serper fallback ──────────────────────────────────────────────
+  // ── Phase 2: Serper fallback (if still not enough) ───────────────────────
   if (discovered.length < 15 && config.serperApiKey) {
     const searchResults = await Promise.all(
       SERPER_QUERIES.map(({ q, tbs, num }) =>
@@ -296,6 +393,7 @@ export async function fetchRedditScamPosts(
           .catch(() => ({ organic: [] }))
       )
     );
+    queriesUsed.push(...SERPER_QUERIES.map((q) => q.q));
 
     for (const result of searchResults) {
       for (const item of result.organic ?? []) {
@@ -305,11 +403,15 @@ export async function fetchRedditScamPosts(
         discovered.push({ title: item.title, url: item.link, snippet: item.snippet ?? "", date: item.date ?? "recent", selftext: item.snippet ?? "" });
       }
     }
-    queriesUsed.push(...SERPER_QUERIES.map((q) => q.q));
   }
 
-  // ── Phase 3: Enrich ───────────────────────────────────────────────────────
-  const enrichMap = await enrichBatch(discovered, token);
+  // ── Phase 3: Enrich posts that don't have pre-loaded data ────────────────
+  // Posts from Phase 0 already carry _score/_comments etc. (from the listing
+  // payload). Only Phase 1/2 posts need enrichment.
+  const needsEnrich = discovered.filter((p) => p._score === undefined);
+  const enrichMap = needsEnrich.length > 0
+    ? await enrichBatch(needsEnrich, token)
+    : new Map<string, RedditPostData>();
 
   // ── Assemble ──────────────────────────────────────────────────────────────
   const posts: FetchedRedditPost[] = discovered.map((item) => {
@@ -319,25 +421,39 @@ export async function fetchRedditScamPosts(
       .trim();
     const bodyText = item.selftext?.length > 10 ? item.selftext : item.snippet;
 
+    // Use pre-loaded data from Phase 0 if available, otherwise enrichment
+    const score   = item._score   ?? enriched?.score          ?? 0;
+    const comments= item._comments?? enriched?.num_comments   ?? 0;
+    const ratio   = item._upvoteRatio ?? enriched?.upvote_ratio ?? 0;
+    const author  = item._author  ?? enriched?.author         ?? "r/Scams";
+    // Phase 0 returns actual flair text; fall back to inference for Serper results
+    const flair   = (item._flair && item._flair.length > 0)
+      ? item._flair
+      : inferFlair(cleanTitle, bodyText);
+
     return {
       title: sanitise(cleanTitle),
-      upvotes: enriched?.score ?? 0,
-      comments: enriched?.num_comments ?? 0,
-      upvoteRatio: enriched?.upvote_ratio ?? 0,
-      flair: inferFlair(cleanTitle, bodyText),
+      upvotes: score,
+      comments,
+      upvoteRatio: ratio,
+      flair,
       url: item.url,
-      author: enriched?.author ?? "r/Scams",
+      author,
       timeAgo: item.date,
       bodyPreview: sanitise(bodyText),
     };
   });
+
+  const authMethod = token
+    ? "OAuth (reddit app credentials)"
+    : "Direct listing (no auth required)";
 
   return {
     posts,
     scannedAt,
     queriesUsed,
     rawResultCount: posts.length,
-    enrichedCount: enrichMap.size,
-    authMethod: token ? "OAuth (reddit app credentials)" : "Public JSON API",
+    enrichedCount: enrichMap.size + discovered.filter((p) => p._score !== undefined).length,
+    authMethod,
   };
 }
