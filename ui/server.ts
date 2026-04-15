@@ -25,9 +25,10 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3333;
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 
 if (!API_KEY) {
-  console.error("❌  ANTHROPIC_API_KEY is not set.");
-  console.error("    Start with: ANTHROPIC_API_KEY=sk-ant-... npx tsx ui/server.ts");
-  process.exit(1);
+  throw new Error(
+    "ANTHROPIC_API_KEY is not set. " +
+    "Set it in your environment or Vercel project settings."
+  );
 }
 
 const anthropic = new Anthropic({ apiKey: API_KEY });
@@ -80,7 +81,11 @@ function makeInvokeLLM() {
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
+// On Vercel, static files are served natively from /public at the repo root.
+// Locally (npm start), Express serves them from ui/public/.
+if (!process.env.VERCEL) {
+  app.use(express.static(path.join(__dirname, "public")));
+}
 
 // List of available agents and their status
 app.get("/api/agents", (_req, res) => {
