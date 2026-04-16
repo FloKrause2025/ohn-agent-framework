@@ -18,7 +18,7 @@ import { runScripty } from "../agents/scripty/index.js";
 // RedditPost used for mapping below; LLMInvokeParams used by makeInvokeLLM
 import { fetchRedditScamPosts } from "../skills/reddit-scraping/index.js";
 import type { RedditScrapingConfig } from "../skills/reddit-scraping/index.js";
-import { runIgPull, getLatestIgPull, isCacheStale, getLastPullTime } from "../skills/instagram-analytics/index.js";
+import { runIgPull, getLatestIgPull, isCacheStale, getLastPullTime, isIgConfigured } from "../skills/instagram-analytics/index.js";
 import { RequestLogger } from "./logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -355,13 +355,17 @@ app.post("/api/stream", async (req, res) => {
 
 // GET /api/instistati/latest — returns cached data (triggers pull if empty/stale)
 app.get("/api/instistati/latest", async (_req, res) => {
+  if (!isIgConfigured()) {
+    res.json({ configured: false });
+    return;
+  }
   try {
     let data = getLatestIgPull();
     if (!data || isCacheStale()) {
       data = await runIgPull();
     }
     const nextPullAt = getLastPullTime() + 2 * 60 * 60 * 1000;
-    res.json({ data, nextPullAt, isStale: isCacheStale() });
+    res.json({ configured: true, data, nextPullAt, isStale: isCacheStale() });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -369,9 +373,13 @@ app.get("/api/instistati/latest", async (_req, res) => {
 
 // POST /api/instistati/pull — manual refresh
 app.post("/api/instistati/pull", async (_req, res) => {
+  if (!isIgConfigured()) {
+    res.json({ configured: false });
+    return;
+  }
   try {
     const data = await runIgPull();
-    res.json({ data, pulledAt: data.pulledAt });
+    res.json({ configured: true, data, pulledAt: data.pulledAt });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -389,11 +397,15 @@ if (!process.env.VERCEL) {
     console.log(`    Press Ctrl+C to stop\n`);
   });
 
-  // Seed InstiStati cache on startup, then auto-refresh every 2 hours
-  runIgPull().catch(err => console.error("[InstiStati] Startup pull failed:", err));
-  setInterval(() => {
-    runIgPull().catch(err => console.error("[InstiStati] Auto-refresh failed:", err));
-  }, 2 * 60 * 60 * 1000);
+  // Seed InstiStati cache on startup, then auto-refresh every 2 hours (only when configured)
+  if (isIgConfigured()) {
+    runIgPull().catch(err => console.error("[InstiStati] Startup pull failed:", err));
+    setInterval(() => {
+      runIgPull().catch(err => console.error("[InstiStati] Auto-refresh failed:", err));
+    }, 2 * 60 * 60 * 1000);
+  } else {
+    console.log("[InstiStati] Skipping startup pull — INSTAGRAM_ACCESS_TOKEN not set.");
+  }
 }
 
 // Vercel serverless handler

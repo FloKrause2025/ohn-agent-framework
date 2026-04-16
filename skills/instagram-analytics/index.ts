@@ -2,8 +2,7 @@
  * skills/instagram-analytics/index.ts
  *
  * Instagram organic analytics skill.
- * DEMO MODE (default) — realistic mock data, works with no credentials.
- * LIVE MODE — set INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_BUSINESS_ACCOUNT_ID env vars.
+ * Requires INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_BUSINESS_ACCOUNT_ID env vars.
  *
  * No database dependency — uses in-memory cache with 2-hour TTL.
  * Accessible by InstiStati agent and any future orchestrator agent.
@@ -72,7 +71,6 @@ export interface IgPullResult {
   pullId: number;
   pulledAt: Date;
   dateRange: string;
-  isDemo: boolean;
   accountSummary: IgAccountSummary;
   posts: IgPost[];
   audienceData: IgAudienceData;
@@ -131,169 +129,6 @@ export function getLastPullTime(): number {
   return _lastPullTime;
 }
 
-// ─── Demo data ────────────────────────────────────────────────────────────────
-
-function generateDemoData(): Omit<IgPullResult, "pullId" | "pulledAt" | "dateRange" | "isDemo"> {
-  const accountSummary: IgAccountSummary = {
-    followers: 127_843,
-    following: 412,
-    mediaCount: 847,
-    profileViews: 18_420,
-    websiteClicks: 3_241,
-    reach: 284_590,
-    impressions: 512_340,
-    totalEngagements: 19_872,
-    avgEngagementRate: 6.98,
-    followersChange: 2.4,
-    reachChange: 14.2,
-    impressionsChange: 8.7,
-    engagementRateChange: 0.6,
-  };
-
-  const posts: IgPost[] = [
-    {
-      mediaId: "demo1", caption: "⚠️ This text message is NOT from your bank. Here's how to spot the difference. #scamalert",
-      captionLine: "⚠️ This text message is NOT from your bank.",
-      mediaType: "REEL", permalink: "https://www.instagram.com/reel/demo1/", mediaUrl: "",
-      timestamp: "2026-03-10T14:00:00Z",
-      reach: 72_150, likes: 4_821, comments: 312, shares: 1_840, saves: 2_103, plays: 94_200,
-      engagementRate: 12.57, isViral: true,
-      avgWatchTimeSeconds: 38, avgWatchTimePct: 73, threeSecRetentionRate: 81, completionRate: 44,
-      profileVisitsFromVideo: 1_840, follows: null, videoDurationSeconds: 52,
-    },
-    {
-      mediaId: "demo2", caption: "Your grandma just got a call from 'Amazon'. Here's what to tell her. #scamprevention",
-      captionLine: "Your grandma just got a call from 'Amazon'.",
-      mediaType: "REEL", permalink: "https://www.instagram.com/reel/demo2/", mediaUrl: "",
-      timestamp: "2026-03-08T16:30:00Z",
-      reach: 54_820, likes: 3_210, comments: 198, shares: 1_420, saves: 1_876, plays: 71_500,
-      engagementRate: 12.22, isViral: true,
-      avgWatchTimeSeconds: 34, avgWatchTimePct: 65, threeSecRetentionRate: 76, completionRate: 38,
-      profileVisitsFromVideo: 1_430, follows: null, videoDurationSeconds: 52,
-    },
-    {
-      mediaId: "demo3", caption: "The Gmail dot trick scam is back. Thousands of people falling for this. 🚨 #gmailscam",
-      captionLine: "The Gmail dot trick scam is back.",
-      mediaType: "REEL", permalink: "https://www.instagram.com/reel/demo3/", mediaUrl: "",
-      timestamp: "2026-03-06T12:00:00Z",
-      reach: 44_380, likes: 2_840, comments: 156, shares: 980, saves: 1_540, plays: 58_900,
-      engagementRate: 12.43, isViral: true,
-      avgWatchTimeSeconds: 31, avgWatchTimePct: 60, threeSecRetentionRate: 72, completionRate: 34,
-      profileVisitsFromVideo: 1_178, follows: null, videoDurationSeconds: 52,
-    },
-    {
-      mediaId: "demo4", caption: "5 signs your phone has been hacked right now. Check these immediately. #phonehacked",
-      captionLine: "5 signs your phone has been hacked right now.",
-      mediaType: "REEL", permalink: "https://www.instagram.com/reel/demo4/", mediaUrl: "",
-      timestamp: "2026-03-04T10:00:00Z",
-      reach: 39_840, likes: 2_410, comments: 134, shares: 820, saves: 1_320, plays: 52_100,
-      engagementRate: 11.69, isViral: true,
-      avgWatchTimeSeconds: 28, avgWatchTimePct: 54, threeSecRetentionRate: 68, completionRate: 29,
-      profileVisitsFromVideo: 1_042, follows: null, videoDurationSeconds: 52,
-    },
-    {
-      mediaId: "demo5", caption: "This QR code in a restaurant could steal your credit card. #qrcodescam",
-      captionLine: "This QR code in a restaurant could steal your credit card.",
-      mediaType: "REEL", permalink: "https://www.instagram.com/reel/demo5/", mediaUrl: "",
-      timestamp: "2026-03-02T14:00:00Z",
-      reach: 33_920, likes: 1_980, comments: 112, shares: 640, saves: 1_120, plays: 44_300,
-      engagementRate: 11.35, isViral: true,
-      avgWatchTimeSeconds: 25, avgWatchTimePct: 48, threeSecRetentionRate: 63, completionRate: 24,
-      profileVisitsFromVideo: 886, follows: null, videoDurationSeconds: 52,
-    },
-    {
-      mediaId: "demo6", caption: "How scammers use your Facebook profile to steal your identity. 😱 #facebookscam",
-      captionLine: "How scammers use your Facebook profile to steal your identity.",
-      mediaType: "REEL", permalink: "https://www.instagram.com/reel/demo6/", mediaUrl: "",
-      timestamp: "2026-02-28T16:00:00Z",
-      reach: 31_180, likes: 1_720, comments: 98, shares: 580, saves: 940, plays: 40_800,
-      engagementRate: 10.71, isViral: true,
-      avgWatchTimeSeconds: 23, avgWatchTimePct: 44, threeSecRetentionRate: 59, completionRate: 21,
-      profileVisitsFromVideo: 816, follows: null, videoDurationSeconds: 52,
-    },
-    {
-      mediaId: "demo7", caption: "The 'wrong number' text scam. They're not lost. They're targeting you. #wrongnumber",
-      captionLine: "The 'wrong number' text scam.",
-      mediaType: "REEL", permalink: "https://www.instagram.com/reel/demo7/", mediaUrl: "",
-      timestamp: "2026-02-26T12:00:00Z",
-      reach: 26_540, likes: 1_480, comments: 87, shares: 490, saves: 820, plays: 34_200,
-      engagementRate: 10.85, isViral: true,
-      avgWatchTimeSeconds: 21, avgWatchTimePct: 40, threeSecRetentionRate: 56, completionRate: 18,
-      profileVisitsFromVideo: 684, follows: null, videoDurationSeconds: 52,
-    },
-    {
-      mediaId: "demo8", caption: "Real vs fake McAfee renewal email. Can you spot the difference? #phishing #mcafee",
-      captionLine: "Real vs fake McAfee renewal email.",
-      mediaType: "IMAGE", permalink: "https://www.instagram.com/p/demo8/", mediaUrl: "",
-      timestamp: "2026-02-24T10:00:00Z",
-      reach: 23_410, likes: 1_240, comments: 72, shares: 380, saves: 690, plays: 0,
-      engagementRate: 9.78, isViral: false,
-      avgWatchTimeSeconds: null, avgWatchTimePct: null, threeSecRetentionRate: null, completionRate: null,
-      profileVisitsFromVideo: 468, follows: null, videoDurationSeconds: 0,
-    },
-    {
-      mediaId: "demo9", caption: "Your Apple ID is NOT suspended. Here's the real email Apple sends. #applescam",
-      captionLine: "Your Apple ID is NOT suspended.",
-      mediaType: "CAROUSEL_ALBUM", permalink: "https://www.instagram.com/p/demo9/", mediaUrl: "",
-      timestamp: "2026-02-22T14:00:00Z",
-      reach: 20_340, likes: 1_080, comments: 63, shares: 310, saves: 580, plays: 0,
-      engagementRate: 9.97, isViral: false,
-      avgWatchTimeSeconds: null, avgWatchTimePct: null, threeSecRetentionRate: null, completionRate: null,
-      profileVisitsFromVideo: 407, follows: null, videoDurationSeconds: 0,
-    },
-    {
-      mediaId: "demo10", caption: "3 things to do if you clicked a phishing link. Do these RIGHT NOW. #phishing",
-      captionLine: "3 things to do if you clicked a phishing link.",
-      mediaType: "REEL", permalink: "https://www.instagram.com/reel/demo10/", mediaUrl: "",
-      timestamp: "2026-02-20T16:00:00Z",
-      reach: 18_120, likes: 940, comments: 58, shares: 280, saves: 510, plays: 23_400,
-      engagementRate: 9.82, isViral: false,
-      avgWatchTimeSeconds: 19, avgWatchTimePct: 37, threeSecRetentionRate: 53, completionRate: 16,
-      profileVisitsFromVideo: 468, follows: null, videoDurationSeconds: 52,
-    },
-  ];
-
-  const audienceData: IgAudienceData = {
-    ageGender: [
-      { label: "35-44 F", percentage: 31.2 },
-      { label: "45-54 F", percentage: 22.8 },
-      { label: "25-34 F", percentage: 18.4 },
-      { label: "35-44 M", percentage: 10.1 },
-      { label: "55-64 F", percentage: 8.7 },
-      { label: "45-54 M", percentage: 5.2 },
-      { label: "Other",   percentage: 3.6 },
-    ],
-    topCountries: [
-      { country: "United States", percentage: 42.3 },
-      { country: "United Kingdom", percentage: 18.7 },
-      { country: "Canada", percentage: 14.2 },
-      { country: "Australia", percentage: 12.8 },
-      { country: "Ireland", percentage: 4.1 },
-      { country: "Other", percentage: 7.9 },
-    ],
-    topCities: [
-      { city: "New York", percentage: 8.4 },
-      { city: "London", percentage: 7.2 },
-      { city: "Los Angeles", percentage: 6.1 },
-      { city: "Toronto", percentage: 5.8 },
-      { city: "Sydney", percentage: 4.9 },
-    ],
-    genderSplit: { female: 81.1, male: 15.3, other: 3.6 },
-  };
-
-  const bestPostingTimes: IgBestPostingTimes = {
-    topSlots: [
-      { day: "Tuesday",   time: "7:00 PM",  score: 98 },
-      { day: "Wednesday", time: "6:30 PM",  score: 95 },
-      { day: "Thursday",  time: "8:00 PM",  score: 93 },
-      { day: "Saturday",  time: "10:00 AM", score: 89 },
-      { day: "Sunday",    time: "11:00 AM", score: 86 },
-    ],
-  };
-
-  return { accountSummary, posts, audienceData, bestPostingTimes };
-}
-
 // ─── Live Meta Graph API pull ─────────────────────────────────────────────────
 
 const IG_API_BASE = "https://graph.facebook.com/v21.0";
@@ -316,7 +151,7 @@ async function fetchLiveData(
   token: string,
   accountId: string,
   dateRange: string,
-): Promise<Omit<IgPullResult, "pullId" | "pulledAt" | "dateRange" | "isDemo">> {
+): Promise<Omit<IgPullResult, "pullId" | "pulledAt" | "dateRange">> {
   const now = Math.floor(Date.now() / 1000);
   const daysMap: Record<string, number> = { last_7_days: 7, last_30_days: 30, last_90_days: 90 };
   const days = daysMap[dateRange] ?? 30;
@@ -466,26 +301,39 @@ async function fetchLiveData(
 
 // ─── Main pull function ───────────────────────────────────────────────────────
 
+/**
+ * Fetch live Instagram data. Throws if INSTAGRAM_ACCESS_TOKEN is not set.
+ * Call runIgPull() only when credentials are confirmed to be present.
+ */
 export async function runIgPull(dateRange: DateRange = "last_30_days"): Promise<IgPullResult> {
   const token     = process.env.INSTAGRAM_ACCESS_TOKEN;
-  const accountId = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID ?? "17841476712984525";
-  const isDemo    = !token;
+  const accountId = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID;
 
-  const data = isDemo ? generateDemoData() : await fetchLiveData(token!, accountId, dateRange);
+  if (!token || !accountId) {
+    throw new Error("Instagram not connected. Set INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_BUSINESS_ACCOUNT_ID.");
+  }
+
+  const data = await fetchLiveData(token, accountId, dateRange);
 
   const result: IgPullResult = {
     pullId:    Date.now(),
     pulledAt:  new Date(),
     dateRange,
-    isDemo,
     ...data,
   };
 
   _cachedPull   = result;
   _lastPullTime = Date.now();
 
-  console.log(`[InstisStati] Pull complete — ${isDemo ? "DEMO" : "LIVE"} · ${result.posts.length} posts`);
+  console.log(`[InstiStati] Pull complete — LIVE · ${result.posts.length} posts`);
   return result;
+}
+
+/**
+ * Returns true if Instagram credentials are configured in the environment.
+ */
+export function isIgConfigured(): boolean {
+  return !!(process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID);
 }
 
 // ─── Context formatter (for other agents / LLM injection) ────────────────────
@@ -500,7 +348,7 @@ export function formatIgDataForAgents(result: IgPullResult): string {
     `  • ${p.captionLine.slice(0, 60)} | ER: ${p.engagementRate}% | Reach: ${p.reach.toLocaleString()} | Shares: ${p.shares} | Saves: ${p.saves} | ${p.mediaType}`
   ).join("\n");
 
-  return `INSTAGRAM DATA (${result.isDemo ? "DEMO" : "LIVE"}) — last updated: ${result.pulledAt.toISOString()}
+  return `INSTAGRAM DATA — last updated: ${result.pulledAt.toISOString()}
 Followers: ${a.followers.toLocaleString()} | Reach 30d: ${a.reach.toLocaleString()} | Avg ER: ${a.avgEngagementRate}%
 Top ${result.posts.slice(0,10).length} posts by engagement:
 ${topPosts}`;

@@ -1368,6 +1368,8 @@
       hideTyping();
       if (!res.ok || json.error) {
         addAgentMessage(json.error ?? 'Failed to load Instagram data.', 'error');
+      } else if (json.configured === false) {
+        renderInstiStatiSetup();
       } else {
         renderInstiStatiResult(json.data ?? json, json.nextPullAt);
       }
@@ -1395,6 +1397,38 @@
     return '🔴';
   }
 
+  function renderInstiStatiSetup() {
+    const msgs = document.getElementById('messages');
+    const div  = document.createElement('div');
+    div.className = 'msg agent';
+    div.innerHTML = `
+      <div class="msg-meta">InstiStati 📸</div>
+      <div class="bubble">
+        <div class="result-wrap">
+          <div style="background:#0a0f1a;border:1px solid #1e3a5f;border-left:3px solid #f472b6;border-radius:var(--radius);padding:20px 24px;">
+            <div style="font-size:13px;font-weight:700;color:#f472b6;margin-bottom:8px;">📸 Connect your Instagram account</div>
+            <div style="font-size:13px;color:var(--text);line-height:1.7;margin-bottom:16px;">
+              InstiStati needs your Meta API credentials to pull organic performance data.
+              Once connected, data refreshes automatically every 2 hours.
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;">Required environment variables</div>
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px 14px;font-family:monospace;font-size:12px;color:#93c5fd;line-height:2;">
+              INSTAGRAM_ACCESS_TOKEN=your_long_lived_token<br>
+              INSTAGRAM_BUSINESS_ACCOUNT_ID=your_ig_business_id
+            </div>
+            <div style="margin-top:14px;font-size:12px;color:var(--text-muted);">
+              Set these in your <strong style="color:var(--text);">.env</strong> file locally, or in your Vercel project settings under
+              <strong style="color:var(--text);">Settings → Environment Variables</strong>.
+              Then restart the server and click InstiStati again.
+            </div>
+          </div>
+        </div>
+      </div>`;
+    msgs.appendChild(div);
+    scrollBottom();
+    setLoading(false);
+  }
+
   function renderInstiStatiResult(data, nextPullAt) {
     const msgs = document.getElementById('messages');
     const div  = document.createElement('div');
@@ -1407,7 +1441,6 @@
     const pulledAt   = new Date(data.pulledAt);
     const nextPull   = nextPullAt ? new Date(nextPullAt) : null;
     const minsAgo    = Math.round((Date.now() - pulledAt.getTime()) / 60000);
-    const isDemo     = data.isDemo;
 
     const fmt = n => typeof n === 'number' ? n.toLocaleString() : 'N/A';
     const pct = n => n !== null && n !== undefined ? n + '%' : 'N/A';
@@ -1458,7 +1491,7 @@
           <div style="background:#0a0f1a;border:1px solid #1e3a5f;border-left:3px solid #f472b6;border-radius:var(--radius);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
             <div>
               <div style="font-size:10px;font-weight:700;color:#f472b6;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:3px;">
-                📸 Instagram Performance ${isDemo ? '<span style="background:#422006;color:#fbbf24;font-size:9px;padding:2px 6px;border-radius:3px;margin-left:6px;">DEMO DATA</span>' : '<span style="background:#052e16;color:#4ade80;font-size:9px;padding:2px 6px;border-radius:3px;margin-left:6px;">LIVE</span>'}
+                📸 Instagram Performance <span style="background:#052e16;color:#4ade80;font-size:9px;padding:2px 6px;border-radius:3px;margin-left:6px;">LIVE</span>
               </div>
               <div style="font-size:11px;color:var(--text-muted);">
                 Last updated: ${pulledAt.toLocaleString()} (${minsAgo}m ago)

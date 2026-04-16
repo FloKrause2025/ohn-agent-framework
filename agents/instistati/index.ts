@@ -18,6 +18,7 @@ export {
   getLatestIgPull,
   isCacheStale,
   getLastPullTime,
+  isIgConfigured,
   formatIgDataForAgents,
   benchmarkThreeSecRetention,
   benchmarkWatchTimePct,
@@ -40,8 +41,14 @@ export type {
  * Get the latest Instagram data — or trigger a pull if cache is empty/stale.
  * This is the single entry point other agents use to request IG data.
  */
+/**
+ * Get the latest Instagram data — or trigger a pull if cache is empty/stale.
+ * Returns null if Instagram credentials are not configured.
+ * This is the single entry point other agents use to request IG data.
+ */
 export async function getInstiStatiData() {
-  const { getLatestIgPull, isCacheStale, runIgPull } = await import("../../skills/instagram-analytics/index.js");
+  const { getLatestIgPull, isCacheStale, isIgConfigured, runIgPull } = await import("../../skills/instagram-analytics/index.js");
+  if (!isIgConfigured()) return null;
   const cached = getLatestIgPull();
   if (!cached || isCacheStale()) {
     return runIgPull();
