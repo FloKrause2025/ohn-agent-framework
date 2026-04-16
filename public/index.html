@@ -778,9 +778,20 @@
         <div id="googly-steps" style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
           <div style="color:var(--text-muted);">Connecting…</div>
         </div>
+        <div id="googly-debug" style="margin-top:12px;background:#0a0f1a;border:1px solid #1e293b;border-radius:6px;padding:8px;font-family:monospace;font-size:10px;color:#475569;max-height:200px;overflow-y:auto;"></div>
       </div>`;
     msgs.appendChild(progressDiv);
     scrollBottom();
+
+    const debugEl = document.getElementById('googly-debug');
+    const dbg = (msg) => {
+      const ts = new Date().toISOString().slice(11,23);
+      const line = document.createElement('div');
+      line.textContent = `[${ts}] ${msg}`;
+      debugEl.appendChild(line);
+      debugEl.scrollTop = debugEl.scrollHeight;
+      console.log('[Googly SSE]', msg);
+    };
 
     const stepsEl = document.getElementById('googly-steps');
     const stepIcons = {
@@ -833,11 +844,19 @@
       let buffer = '';
       let lastStepEl = null;
 
-      const processLines = (lines) => {
+      const processLines = (lines, source) => {
         for (const line of lines) {
+          if (!line.trim()) continue;
+          dbg(`  line(${source}): "${line.slice(0, 80)}${line.length > 80 ? '…' : ''}"`);
           if (!line.startsWith('data: ')) continue;
           let event;
-          try { event = JSON.parse(line.slice(6)); } catch { continue; }
+          try {
+            event = JSON.parse(line.slice(6));
+            dbg(`  → parsed event type="${event.type}"`);
+          } catch (e) {
+            dbg(`  → JSON parse FAILED: ${e.message}`);
+            continue;
+          }
 
           if (event.type === 'start') {
             stepsEl.innerHTML = '';
@@ -846,45 +865,50 @@
             lastStepEl = addStep(icon, event.message, 'color:var(--text);');
             scrollBottom();
           } else if (event.type === 'complete') {
+            dbg('  → COMPLETE received — calling renderGooglyResult');
             try {
               progressDiv.remove();
               hideTyping();
               renderGooglyResult(event.result, event.logs ?? []);
+              dbg('  → render OK');
             } catch (renderErr) {
-              const errMsg = renderErr?.message ?? String(renderErr);
+              dbg(`  → RENDER CRASH: ${renderErr?.message}`);
               stepsEl.innerHTML = `
-                <div style="color:#f87171;margin-bottom:8px;">❌ Render error: ${escHtml(errMsg)}</div>
+                <div style="color:#f87171;margin-bottom:8px;">❌ Render error: ${escHtml(renderErr?.message ?? String(renderErr))}</div>
                 <details style="font-size:11px;color:var(--text-muted);">
-                  <summary style="cursor:pointer;">Raw result (click to expand)</summary>
+                  <summary style="cursor:pointer;">Raw result</summary>
                   <pre style="white-space:pre-wrap;word-break:break-all;margin-top:6px;font-size:10px;color:#7dd3fc;">${escHtml(JSON.stringify(event.result, null, 2).slice(0, 5000))}</pre>
                 </details>`;
-              console.error('[Googly] render crashed:', renderErr);
             }
           } else if (event.type === 'error') {
+            dbg(`  → ERROR event: ${event.error}`);
             stepsEl.innerHTML = `<div style="color:#f87171;">❌ ${escHtml(event.error ?? 'Unknown error')}</div>`;
             hideTyping();
           }
         }
       };
 
+      let chunkNum = 0;
       while (true) {
         const { done, value } = await reader.read();
+        chunkNum++;
+        dbg(`chunk #${chunkNum} done=${done} bytes=${value?.length ?? 0}`);
 
-        // Always process value before checking done —
-        // Vercel can deliver the final chunk with done=true simultaneously.
         if (value) {
           buffer += decoder.decode(value, { stream: !done });
           const lines = buffer.split('\n');
-          buffer = lines.pop(); // hold incomplete trailing line
-          processLines(lines);
+          buffer = lines.pop();
+          dbg(`  buffer after split: ${lines.length} lines, remainder="${buffer.slice(0,40)}"`);
+          processLines(lines, `chunk#${chunkNum}`);
         }
 
         if (done) {
-          // Flush anything left in the buffer (handles clean stream close)
-          if (buffer.trim()) processLines([buffer]);
+          dbg(`stream ended — buffer remainder="${buffer.slice(0,80)}"`);
+          if (buffer.trim()) processLines([buffer], 'flush');
           break;
         }
       }
+      dbg('stream loop exited');
     } catch (err) {
       clearTimeout(timeoutId);
       const msg = err?.name === 'AbortError'
