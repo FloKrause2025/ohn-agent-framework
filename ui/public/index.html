@@ -1333,9 +1333,9 @@
   }
 
   function handleGenerateScript(topic, researchReport) {
-    // Switch to Scripty agent
-    const scriptyAgent = agents.find(a => a.id === 'scripty');
-    if (scriptyAgent) selectAgent(scriptyAgent);
+    // Switch to Scripty — selectAgent expects the DOM button element, not the agent object
+    const scriptyBtn = document.querySelector('[data-agent="scripty"]');
+    if (scriptyBtn) selectAgent(scriptyBtn);
 
     // Show user message and kick off the stream
     addUserMessage(`Generate script for: ${topic}`);
