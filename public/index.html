@@ -786,8 +786,9 @@
     const stepIcons = {
       extracting_topic: '🧠',
       searching:        '🔎',
-      ranking_sources:  '📊',
-      writing_report:   '✍️',
+      scraping:         '📄',
+      extracting_facts: '✍️',
+      done:             '✅',
     };
 
     function addStep(icon, message, style = '') {
@@ -1086,7 +1087,7 @@
     const div  = document.createElement('div');
     div.className = 'msg agent';
 
-    const { topic, topicReasoning, tier1Count, tier2Count, tier3Count, totalSources, queriesRun } = result;
+    const { topic, topicReasoning, tier1Count, tier2Count, tier3Count, totalSources, queriesRun, scrapedPage, extractedFacts } = result;
     const sources = result.sources ?? [];
 
     const tierColor = { 'TIER 1 ✅': '#6ee7b7', 'TIER 2 ✅': '#93c5fd', 'TIER 3 ❌': '#f87171' };
@@ -1110,16 +1111,17 @@
         </div>`;
     };
 
-    const t1Html = tier1Sources.map(sourceCard).join('');
-    const t2Html = tier2Sources.map(sourceCard).join('');
-    const t3Html = tier3Sources.map(sourceCard).join('');
+    // Format extracted facts — convert **bold** markdown to <strong>
+    const formatFacts = (text) => escHtml(text)
+      .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text);">$1</strong>')
+      .replace(/\n/g, '<br>');
 
     div.innerHTML = `
       <div class="msg-meta">Googly 🔍</div>
       <div class="bubble">
         <div class="result-wrap">
 
-          <!-- Topic extraction -->
+          <!-- Topic -->
           ${topicReasoning ? `
           <div style="background:#0c1a2e;border:1px solid #1e3a5f;border-left:3px solid #3b82f6;border-radius:var(--radius);padding:12px 16px;">
             <div style="font-size:10px;font-weight:700;color:#60a5fa;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;">🧠 Topic identified</div>
@@ -1127,35 +1129,36 @@
             <div style="font-size:12px;color:var(--text-muted);">${escHtml(topicReasoning)}</div>
           </div>` : ''}
 
-          <!-- Stats -->
-          <div class="funnel-card">
-            <h4>${queriesRun} searches · ${totalSources} sources found</h4>
-            <div class="funnel-row"><span class="label">🟢 Tier 1 — Gov / law enforcement</span><span class="value" style="color:#6ee7b7;">${tier1Count}</span></div>
-            <div class="funnel-row"><span class="label">🔵 Tier 2 — Cybersec / news</span><span class="value" style="color:#93c5fd;">${tier2Count}</span></div>
-            <div class="funnel-row"><span class="label">🔴 Tier 3 — Rejected (blogs/Reddit)</span><span class="value" style="color:#f87171;">${tier3Count}</span></div>
-          </div>
+          <!-- Extracted facts — the main output -->
+          ${extractedFacts ? `
+          <div style="background:#0a1a0a;border:1px solid #166534;border-left:3px solid #22c55e;border-radius:var(--radius);padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">
+              📄 Key facts — scraped from ${escHtml(scrapedPage?.tier ?? '')} source
+              <a href="${escHtml(scrapedPage?.url ?? '')}" target="_blank" style="color:#60a5fa;font-weight:400;margin-left:8px;font-size:10px;">${escHtml(scrapedPage?.title ?? '')}</a>
+            </div>
+            <div style="font-size:13px;color:#d1fae5;line-height:1.8;">${formatFacts(extractedFacts)}</div>
+          </div>` : `
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;font-size:12px;color:var(--text-muted);">
+            ⚠️ Could not scrape a page — the site may have blocked the request. See sources below.
+          </div>`}
 
-          <!-- Tier 1 sources -->
-          ${tier1Sources.length > 0 ? `
-            <div style="font-size:11px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:0.8px;">🟢 Tier 1 — Government &amp; Law Enforcement</div>
-            <div style="display:flex;flex-direction:column;gap:8px;">${t1Html}</div>` : ''}
-
-          <!-- Tier 2 sources -->
-          ${tier2Sources.length > 0 ? `
-            <div style="font-size:11px;font-weight:700;color:#93c5fd;text-transform:uppercase;letter-spacing:0.8px;margin-top:4px;">🔵 Tier 2 — Cybersecurity &amp; News</div>
-            <div style="display:flex;flex-direction:column;gap:8px;">${t2Html}</div>` : ''}
-
-          <!-- Tier 3 collapsed -->
-          ${tier3Sources.length > 0 ? `
-            <div>
-              <button class="excluded-toggle" onclick="toggleExcluded(this)">
-                <span>🔴 ${tier3Sources.length} Tier 3 sources rejected (Reddit, blogs, forums)</span>
-                <span>▼</span>
-              </button>
-              <div class="excluded-list">
-                <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px;">${t3Html}</div>
+          <!-- Stats + sources toggle -->
+          <div>
+            <button class="excluded-toggle" onclick="toggleExcluded(this)">
+              <span>🌐 ${queriesRun} searches · ${totalSources} sources (${tier1Count} gov, ${tier2Count} cybersec, ${tier3Count} rejected)</span>
+              <span>▼</span>
+            </button>
+            <div class="excluded-list">
+              <div style="display:flex;flex-direction:column;gap:12px;padding-top:10px;">
+                ${tier1Sources.length > 0 ? `<div style="font-size:10px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:0.8px;">🟢 Tier 1 — Government &amp; Law Enforcement</div>
+                <div style="display:flex;flex-direction:column;gap:8px;">${tier1Sources.map(sourceCard).join('')}</div>` : ''}
+                ${tier2Sources.length > 0 ? `<div style="font-size:10px;font-weight:700;color:#93c5fd;text-transform:uppercase;letter-spacing:0.8px;">🔵 Tier 2 — Cybersecurity &amp; News</div>
+                <div style="display:flex;flex-direction:column;gap:8px;">${tier2Sources.map(sourceCard).join('')}</div>` : ''}
+                ${tier3Sources.length > 0 ? `<div style="font-size:10px;font-weight:700;color:#f87171;text-transform:uppercase;letter-spacing:0.8px;">🔴 Tier 3 — Rejected</div>
+                <div style="display:flex;flex-direction:column;gap:8px;">${tier3Sources.map(sourceCard).join('')}</div>` : ''}
               </div>
-            </div>` : ''}
+            </div>
+          </div>
 
           <!-- Pipeline logs -->
           ${buildLogsHtml(logs)}
