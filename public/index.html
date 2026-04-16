@@ -833,14 +833,7 @@
       let buffer = '';
       let lastStepEl = null;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop(); // keep incomplete last line
-
+      const processLines = (lines) => {
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           let event;
@@ -853,14 +846,11 @@
             lastStepEl = addStep(icon, event.message, 'color:var(--text);');
             scrollBottom();
           } else if (event.type === 'complete') {
-            addStep('✅', 'Complete event received — rendering result…', 'color:#6ee7b7;');
-            scrollBottom();
             try {
               progressDiv.remove();
               hideTyping();
               renderGooglyResult(event.result, event.logs ?? []);
             } catch (renderErr) {
-              // Rendering crashed — show the raw result so nothing is lost
               const errMsg = renderErr?.message ?? String(renderErr);
               stepsEl.innerHTML = `
                 <div style="color:#f87171;margin-bottom:8px;">❌ Render error: ${escHtml(errMsg)}</div>
@@ -868,13 +858,31 @@
                   <summary style="cursor:pointer;">Raw result (click to expand)</summary>
                   <pre style="white-space:pre-wrap;word-break:break-all;margin-top:6px;font-size:10px;color:#7dd3fc;">${escHtml(JSON.stringify(event.result, null, 2).slice(0, 5000))}</pre>
                 </details>`;
-              console.error('[Googly] renderGooglyResult crashed:', renderErr);
-              console.log('[Googly] Raw result:', event.result);
+              console.error('[Googly] render crashed:', renderErr);
             }
           } else if (event.type === 'error') {
             stepsEl.innerHTML = `<div style="color:#f87171;">❌ ${escHtml(event.error ?? 'Unknown error')}</div>`;
             hideTyping();
           }
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        // Always process value before checking done —
+        // Vercel can deliver the final chunk with done=true simultaneously.
+        if (value) {
+          buffer += decoder.decode(value, { stream: !done });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // hold incomplete trailing line
+          processLines(lines);
+        }
+
+        if (done) {
+          // Flush anything left in the buffer (handles clean stream close)
+          if (buffer.trim()) processLines([buffer]);
+          break;
         }
       }
     } catch (err) {
