@@ -24,8 +24,16 @@ export type { LLMInvokeParams, LLMResponse };
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface GooglyInput {
-  /** The scam topic to research — can come from a Reddit post title or manual input */
-  topic: string;
+  /**
+   * Raw Reddit post body text — Googly will extract the scam type from this.
+   * Provide either rawText OR topic, not both. rawText takes priority.
+   */
+  rawText?: string;
+  /**
+   * Pre-extracted scam topic — used when the caller already knows the topic
+   * (e.g. direct testing). If rawText is provided this is ignored.
+   */
+  topic?: string;
   /** Optional angle / framing passed in from Researchy */
   angle?: string;
   /** ISO timestamp of the triggering Reddit post, or now() */
@@ -40,7 +48,12 @@ export interface GooglySource {
 }
 
 export interface GooglyResult {
+  /** The raw Reddit post text that was analysed (if provided) */
+  rawText?: string;
+  /** The scam topic extracted by LLM, or the directly-provided topic */
   topic: string;
+  /** One-sentence explanation of why Googly chose this search query */
+  topicReasoning?: string;
   report: string;
   sources: GooglySource[];
   tier1Count: number;
@@ -215,6 +228,68 @@ HARD RULES — NON-NEGOTIABLE:
 4. Never omit Section 5 (reporting) or Section 7 (plain language).
 5. Never accept Tier 3 sources. No exceptions.`;
 
+// ─── Topic Extraction ─────────────────────────────────────────────────────────
+
+interface ExtractedTopic {
+  topic: string;
+  reasoning: string;
+}
+
+async function extractScamTopic(
+  rawText: string,
+  invokeLLM: GooglyDeps["invokeLLM"],
+  log?: RequestLogger,
+): Promise<ExtractedTopic> {
+  log?.info("googly", "Extracting scam topic from raw text");
+
+  const response = await invokeLLM({
+    model: "claude-haiku-4-5-20251001",
+    messages: [
+      {
+        role: "system",
+        content: `You are a scam classification assistant. Your ONLY job is to read a Reddit post and output JSON with two fields:
+- "topic": a concise 2-5 word scam type label, optimized as a Google search query (e.g. "PayPal overpayment scam", "online marketplace prop scam", "romance scam advance payment", "fake tech support scam"). Make it specific enough to get useful search results.
+- "reasoning": one sentence explaining what type of scam this appears to be.
+
+Output ONLY valid JSON. No markdown. No explanation outside the JSON.
+Example: {"topic":"PayPal goods not received scam","reasoning":"The seller is pushing for more sales after a deal, a classic overpayment or non-delivery scam pattern."}`
+      },
+      {
+        role: "user",
+        content: `Reddit post text:\n\n${rawText.slice(0, 2000)}\n\nExtract the scam topic as JSON.`,
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "scam_topic",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            topic:     { type: "string" },
+            reasoning: { type: "string" },
+          },
+          required: ["topic", "reasoning"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  const raw = response.choices[0]?.message?.content ?? "{}";
+  try {
+    const parsed = JSON.parse(raw) as ExtractedTopic;
+    log?.info("googly", `Extracted topic: "${parsed.topic}" — ${parsed.reasoning}`);
+    return parsed;
+  } catch {
+    // Fallback: use first 60 chars of raw text as topic
+    const fallback = rawText.slice(0, 60).trim();
+    log?.warn?.("googly", `Topic extraction parse failed, using fallback: "${fallback}"`);
+    return { topic: fallback, reasoning: "Fallback — could not parse LLM response." };
+  }
+}
+
 // ─── Serper Search ────────────────────────────────────────────────────────────
 
 async function serperSearch(
@@ -241,8 +316,24 @@ export async function runGoogly(
   input: GooglyInput,
   deps: GooglyDeps,
 ): Promise<GooglyResult> {
-  const { topic, angle, scannedAt = new Date().toISOString() } = input;
+  const { rawText, angle, scannedAt = new Date().toISOString() } = input;
   const { invokeLLM, serperApiKey, logger: log } = deps;
+
+  // ── Step 1: Extract the scam topic from raw text (if provided) ───────────
+  let topic = input.topic ?? "";
+  let topicReasoning: string | undefined;
+
+  if (rawText) {
+    log?.info("googly", "Raw text received — running topic extraction step");
+    log?.debug("googly", "Raw text", { rawText });
+    const extracted = await extractScamTopic(rawText, invokeLLM, log);
+    topic = extracted.topic;
+    topicReasoning = extracted.reasoning;
+  }
+
+  if (!topic) {
+    throw new Error("Googly needs either rawText or a topic to research.");
+  }
 
   log?.info("googly", `Starting research — topic: "${topic}"`);
 
@@ -335,7 +426,9 @@ Now follow Steps 1-3 from your instructions. Write the complete 7-section GOOGLY
   log?.debug("googly", "Full report", { report });
 
   return {
+    rawText,
     topic,
+    topicReasoning,
     report,
     sources: sorted,
     tier1Count: tier1.length,

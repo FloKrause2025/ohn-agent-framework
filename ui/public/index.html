@@ -713,7 +713,7 @@
   function getWelcomeMessage(agent) {
     const messages = {
       researchy: '👋 Hey! I\'m Researchy. I\'ll scan our sample Reddit posts from r/Scams and filter them down to the best topics for OHN content.\n\nType anything (e.g. "scan" or "find new topics") to run the filter.',
-      googly: '🔍 Hey! I\'m Googly. Give me a scam topic (e.g. "email phishing", "romance scam", "fake tech support") and I\'ll research it across 10 targeted searches, rank sources by authority (government → cybersecurity → reject), and produce a full 7-section research report.\n\nType the scam topic to research:',
+      googly: '🔍 Hey! I\'m Googly. Paste a Reddit post (or describe a scam situation) and I\'ll:\n\n1. Extract the scam type from your text\n2. Run 10 targeted searches across authoritative sources\n3. Rank by authority: Gov/Law Enforcement → Cybersec → (reject blogs/Reddit)\n4. Write a full 7-section research report\n\nPaste the Reddit post text below:',
     };
     return messages[agent.id] ?? `${agent.emoji} ${agent.name} is coming soon.`;
   }
@@ -971,7 +971,7 @@
     const div  = document.createElement('div');
     div.className = 'msg agent';
 
-    const { topic, report, tier1Count, tier2Count, tier3Count, totalSources, queriesRun } = result;
+    const { topic, topicReasoning, rawText, report, tier1Count, tier2Count, tier3Count, totalSources, queriesRun } = result;
     const sources = result.sources ?? [];
 
     // Source rows — Tier 1 and Tier 2 only in the visible table
@@ -1003,6 +1003,14 @@
       <div class="msg-meta">Googly 🔍</div>
       <div class="bubble">
         <div class="result-wrap">
+
+          <!-- Topic extraction result -->
+          ${topicReasoning ? `
+          <div style="background:#0c1a2e;border:1px solid #1e3a5f;border-left:3px solid #3b82f6;border-radius:var(--radius);padding:12px 16px;">
+            <div style="font-size:10px;font-weight:700;color:#60a5fa;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">🔍 Step 1 — Topic extracted from your text</div>
+            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px;">"${escHtml(topic)}"</div>
+            <div style="font-size:12px;color:var(--text-muted);">${escHtml(topicReasoning)}</div>
+          </div>` : ''}
 
           <!-- Stats bar -->
           <div class="funnel-card">

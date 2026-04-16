@@ -221,9 +221,10 @@ app.post("/api/chat", async (req, res) => {
         return;
       }
 
-      // message is the scam topic to research (can be a Reddit post title or manual input)
+      // message is raw text (Reddit post body, title, or freeform) —
+      // Googly will extract the scam topic from it before searching.
       const result = await runGoogly(
-        { topic: message, scannedAt: new Date().toISOString() },
+        { rawText: message, scannedAt: new Date().toISOString() },
         { invokeLLM: makeInvokeLLM(), serperApiKey, logger },
       );
 
