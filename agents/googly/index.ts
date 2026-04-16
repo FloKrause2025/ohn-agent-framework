@@ -63,10 +63,18 @@ export interface GooglyResult {
   queriesRun: number;
 }
 
+export interface GooglyProgressEvent {
+  step: "extracting_topic" | "searching" | "ranking_sources" | "writing_report";
+  message: string;
+  data?: Record<string, unknown>;
+}
+
 export interface GooglyDeps {
   invokeLLM: (params: LLMInvokeParams) => Promise<LLMResponse>;
   serperApiKey: string;
   logger?: RequestLogger;
+  /** Called after each major step — used by SSE endpoint to push progress to browser */
+  onProgress?: (event: GooglyProgressEvent) => void;
 }
 
 // ─── Tier Domain Lists ────────────────────────────────────────────────────────
@@ -317,7 +325,7 @@ export async function runGoogly(
   deps: GooglyDeps,
 ): Promise<GooglyResult> {
   const { rawText, angle, scannedAt = new Date().toISOString() } = input;
-  const { invokeLLM, serperApiKey, logger: log } = deps;
+  const { invokeLLM, serperApiKey, logger: log, onProgress } = deps;
 
   // ── Step 1: Extract the scam topic from raw text (if provided) ───────────
   let topic = input.topic ?? "";
@@ -326,9 +334,11 @@ export async function runGoogly(
   if (rawText) {
     log?.info("googly", "Raw text received — running topic extraction step");
     log?.debug("googly", "Raw text", { rawText });
+    onProgress?.({ step: "extracting_topic", message: "Analysing your text to identify the scam type…" });
     const extracted = await extractScamTopic(rawText, invokeLLM, log);
     topic = extracted.topic;
     topicReasoning = extracted.reasoning;
+    onProgress?.({ step: "extracting_topic", message: `Topic identified: "${topic}"`, data: { topic, reasoning: topicReasoning } });
   }
 
   if (!topic) {
@@ -357,6 +367,7 @@ export async function runGoogly(
   ];
 
   log?.info("googly", `Running ${queries.length} Serper queries`);
+  onProgress?.({ step: "searching", message: `Running ${queries.length} targeted searches for "${topic}"…` });
 
   // Run all queries in parallel
   const rawResults = await Promise.all(
@@ -387,6 +398,7 @@ export async function runGoogly(
   const sorted = [...tier1, ...tier2, ...tier3];
 
   log?.info("googly", `Sources found — Tier 1: ${tier1.length}, Tier 2: ${tier2.length}, Tier 3: ${tier3.length} (rejected)`);
+  onProgress?.({ step: "ranking_sources", message: `Found ${sorted.length} sources — Tier 1: ${tier1.length}, Tier 2: ${tier2.length}, Tier 3 rejected: ${tier3.length}`, data: { tier1Count: tier1.length, tier2Count: tier2.length, tier3Count: tier3.length } });
   log?.debug("googly", "Tier 1 sources", tier1.map(r => ({ title: r.title, url: r.url })));
   log?.debug("googly", "Tier 2 sources", tier2.map(r => ({ title: r.title, url: r.url })));
 
@@ -398,7 +410,8 @@ export async function runGoogly(
   const angleContext = angle ? `\nCONTENT ANGLE: ${angle}` : "";
   const today = new Date().toISOString().split("T")[0];
 
-  log?.info("googly", `Calling LLM with ${Math.min(sorted.length, 25)} sources (claude-sonnet-4-6)`);
+  log?.info("googly", `Calling LLM with ${Math.min(sorted.length, 25)} sources (claude-haiku-4-5-20251001)`);
+  onProgress?.({ step: "writing_report", message: `Writing 7-section research report using ${Math.min(tier1.length + tier2.length, 25)} verified sources…` });
   log?.debug("googly", "Sources text sent to LLM", { sourcesText });
 
   const userMessage = `SCAM TOPIC: ${topic}${angleContext}
@@ -413,7 +426,7 @@ ${sourcesText}
 Now follow Steps 1-3 from your instructions. Write the complete 7-section GOOGLY RESEARCH REPORT. Do NOT output JSON. Use the exact section template. All 7 sections are mandatory.`;
 
   const response = await invokeLLM({
-    model: "claude-sonnet-4-6",
+    model: "claude-haiku-4-5-20251001",
     messages: [
       { role: "system", content: GOOGLY_SYSTEM_PROMPT },
       { role: "user",   content: userMessage },

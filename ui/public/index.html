@@ -731,28 +731,133 @@
     setLoading(true);
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: currentAgent.id, message: text }),
-      });
-
-      const data = await res.json();
-      hideTyping();
-
-      if (!res.ok || data.error) {
-        addAgentMessage(data.error ?? 'Something went wrong.', 'error');
-        if (data.logs) renderLogsPanel(data.logs);
-      } else if (data.type === 'researchy') {
-        renderResearchyResult(data.result, data.logs ?? []);
-      } else if (data.type === 'googly') {
-        renderGooglyResult(data.result, data.logs ?? []);
+      if (currentAgent.id === 'googly') {
+        // Googly uses SSE streaming — we read events as they arrive
+        await streamGoogly(text);
       } else {
-        addAgentMessage(data.result?.message ?? 'No response.', 'text');
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentId: currentAgent.id, message: text }),
+        });
+
+        const data = await res.json();
+        hideTyping();
+
+        if (!res.ok || data.error) {
+          addAgentMessage(data.error ?? 'Something went wrong.', 'error');
+          if (data.logs) renderLogsPanel(data.logs);
+        } else if (data.type === 'researchy') {
+          renderResearchyResult(data.result, data.logs ?? []);
+        } else {
+          addAgentMessage(data.result?.message ?? 'No response.', 'text');
+        }
       }
     } catch (err) {
       hideTyping();
-      addAgentMessage('Network error — is the server running?', 'error');
+      addAgentMessage(`Error: ${err?.message ?? 'Something went wrong. Check console for details.'}`, 'error');
+      setLoading(false);
+    }
+
+    // For Googly, setLoading(false) is called inside streamGoogly when the stream ends
+    if (currentAgent.id !== 'googly') {
+      setLoading(false);
+    }
+  }
+
+  // ── Googly SSE Streaming ───────────────────────────────────────────────────
+  async function streamGoogly(text) {
+    // Show a live progress card that we update as events arrive
+    const msgs = document.getElementById('messages');
+    const progressDiv = document.createElement('div');
+    progressDiv.className = 'msg agent';
+    progressDiv.id = 'googly-progress';
+    progressDiv.innerHTML = `
+      <div class="msg-meta">Googly 🔍</div>
+      <div class="bubble">
+        <div id="googly-steps" style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+          <div style="color:var(--text-muted);">Connecting…</div>
+        </div>
+      </div>`;
+    msgs.appendChild(progressDiv);
+    scrollBottom();
+
+    const stepsEl = document.getElementById('googly-steps');
+    const stepIcons = {
+      extracting_topic: '🧠',
+      searching:        '🔎',
+      ranking_sources:  '📊',
+      writing_report:   '✍️',
+    };
+
+    function addStep(icon, message, style = '') {
+      const el = document.createElement('div');
+      el.style.cssText = style || 'color:var(--text-muted);';
+      el.innerHTML = `${icon} ${escHtml(message)}`;
+      stepsEl.appendChild(el);
+      scrollBottom();
+      return el;
+    }
+
+    function updateLastStep(icon, message, style = '') {
+      const last = stepsEl.lastElementChild;
+      if (last) {
+        last.innerHTML = `${icon} ${escHtml(message)}`;
+        if (style) last.style.cssText = style;
+      }
+    }
+
+    try {
+      const response = await fetch('/api/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: 'googly', message: text }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Server error' }));
+        stepsEl.innerHTML = `<div style="color:#f87171;">Error: ${escHtml(err.error ?? 'Unknown error')}</div>`;
+        setLoading(false);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let lastStepEl = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete last line
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let event;
+          try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (event.type === 'start') {
+            stepsEl.innerHTML = '';
+          } else if (event.type === 'progress') {
+            const icon = stepIcons[event.step] ?? '⚙️';
+            lastStepEl = addStep(icon, event.message, 'color:var(--text);');
+            scrollBottom();
+          } else if (event.type === 'complete') {
+            // Replace progress card with full result
+            progressDiv.remove();
+            hideTyping();
+            renderGooglyResult(event.result, event.logs ?? []);
+          } else if (event.type === 'error') {
+            stepsEl.innerHTML = `<div style="color:#f87171;">❌ ${escHtml(event.error ?? 'Unknown error')}</div>`;
+            hideTyping();
+          }
+        }
+      }
+    } catch (err) {
+      stepsEl.innerHTML = `<div style="color:#f87171;">❌ ${escHtml(err?.message ?? 'Network error')}</div>`;
     }
 
     setLoading(false);

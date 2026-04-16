@@ -211,30 +211,9 @@ app.post("/api/chat", async (req, res) => {
       return;
     }
 
+    // Googly is handled by the SSE streaming endpoint below — not here.
     if (agentId === "googly") {
-      const logger = new RequestLogger();
-      logger.info("server", `Request received — agentId: ${agentId}`);
-
-      const serperApiKey = process.env.SERPER_API_KEY ?? "";
-      if (!serperApiKey) {
-        res.status(502).json({ error: "SERPER_API_KEY is not set.", logs: logger.entries });
-        return;
-      }
-
-      // message is raw text (Reddit post body, title, or freeform) —
-      // Googly will extract the scam topic from it before searching.
-      const result = await runGoogly(
-        { rawText: message, scannedAt: new Date().toISOString() },
-        { invokeLLM: makeInvokeLLM(), serperApiKey, logger },
-      );
-
-      logger.info("server", "Request complete");
-      res.json({
-        agentId,
-        type: "googly",
-        result,
-        logs: logger.entries,
-      });
+      res.status(400).json({ error: "Use POST /api/stream for Googly (SSE streaming required)." });
       return;
     }
 
@@ -251,6 +230,73 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
+});
+
+// ─── Googly SSE streaming endpoint ───────────────────────────────────────────
+// Uses Server-Sent Events so the browser receives live progress updates.
+// Prevents Vercel from closing the connection mid-way through the long LLM call.
+
+app.post("/api/stream", async (req, res) => {
+  const { agentId, message } = req.body as { agentId: string; message: string };
+
+  if (agentId !== "googly") {
+    res.status(400).json({ error: "Only googly is supported on /api/stream" });
+    return;
+  }
+
+  if (!message) {
+    res.status(400).json({ error: "message is required" });
+    return;
+  }
+
+  // Set SSE headers — this keeps the connection alive and lets us push events
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering on Vercel
+  res.flushHeaders();
+
+  const send = (type: string, payload: Record<string, unknown>) => {
+    res.write(`data: ${JSON.stringify({ type, ...payload })}\n\n`);
+    // flush() exists on compressed streams; call if available
+    if (typeof (res as unknown as { flush?: () => void }).flush === "function") {
+      (res as unknown as { flush: () => void }).flush();
+    }
+  };
+
+  const logger = new RequestLogger();
+
+  try {
+    const serperApiKey = process.env.SERPER_API_KEY ?? "";
+    if (!serperApiKey) {
+      send("error", { error: "SERPER_API_KEY is not set." });
+      res.end();
+      return;
+    }
+
+    logger.info("server", `SSE stream started — agentId: ${agentId}`);
+    send("start", { message: "Googly is starting…" });
+
+    const result = await runGoogly(
+      { rawText: message, scannedAt: new Date().toISOString() },
+      {
+        invokeLLM: makeInvokeLLM(),
+        serperApiKey,
+        logger,
+        onProgress: (event) => {
+          send("progress", { step: event.step, message: event.message, data: event.data ?? null });
+        },
+      },
+    );
+
+    logger.info("server", "SSE stream complete");
+    send("complete", { agentId, type: "googly", result, logs: logger.entries });
+  } catch (err) {
+    console.error(`[googly SSE] Error:`, err);
+    send("error", { error: err instanceof Error ? err.message : String(err), logs: logger.entries });
+  }
+
+  res.end();
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
