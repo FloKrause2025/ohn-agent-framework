@@ -714,6 +714,7 @@
     const messages = {
       researchy: '👋 Hey! I\'m Researchy. I\'ll scan our sample Reddit posts from r/Scams and filter them down to the best topics for OHN content.\n\nType anything (e.g. "scan" or "find new topics") to run the filter.',
       googly: '🔍 Hey! I\'m Googly. Paste a Reddit post (or describe a scam situation) and I\'ll:\n\n1. Extract the scam type from your text\n2. Run 10 targeted searches across authoritative sources\n3. Rank by authority: Gov/Law Enforcement → Cybersec → (reject blogs/Reddit)\n4. Write a full 7-section research report\n\nPaste the Reddit post text below:',
+      scripty: '🎬 Hey! I\'m Scripty. Give me a scam topic and I\'ll write a 60-second OHN video script.\n\nFor best results, run Googly first and use the "Generate Script" button — that passes the full research report.\n\nOr just type a topic below and I\'ll write from my knowledge:\n(e.g. "Amazon brushing scam" or "SIM swapping")',
     };
     return messages[agent.id] ?? `${agent.emoji} ${agent.name} is coming soon.`;
   }
