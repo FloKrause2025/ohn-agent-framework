@@ -137,7 +137,7 @@ async function writeHooks(
 
   const response = await invokeLLM({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 600,
+    max_tokens: 900,
     messages: [
       { role: "system", content: HOOK_SYSTEM_PROMPT },
       {
@@ -147,7 +147,7 @@ async function writeHooks(
 APPROVED CORE:
 ${coreText}
 
-Write 3 hook options. Select the strongest one. Write the caption hook and preHookNote.
+Write 5 hook options — draw from at least 3 different formula categories. Select the strongest one as selectedHook. Write the caption hook and preHookNote.
 Output ONLY valid JSON — no extra text.`,
       },
     ],
@@ -198,7 +198,7 @@ export async function runScripty(
   });
 
   // ── Stage 2: Hooks ───────────────────────────────────────────────────────
-  onProgress?.({ step: "writing_hooks", message: "Writing 3 hook options…" });
+  onProgress?.({ step: "writing_hooks", message: "Writing 5 hook options…" });
 
   const hooks = await writeHooks(topic, core, invokeLLM, log);
 
