@@ -125,7 +125,7 @@ WRITE THE FINAL REPORT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Use the exact template below. Do not deviate from this structure.
 - Do NOT output JSON
-- Every section must contain a summary paragraph AND key findings AND source citations
+- Every section must contain a summary paragraph AND source citations
 - All seven sections are mandatory — none may be omitted
 - Every source citation must include the full URL
 
@@ -141,11 +141,6 @@ Section 1 — What is the scam?
 ────────────────────────────────────────────────
 [Summary paragraph — 3 to 5 sentences in plain everyday language, as if explaining to a 65-year-old hearing about this scam for the first time.]
 
-Key findings:
-- [Finding 1]
-- [Finding 2]
-- [Finding 3]
-
 Sources:
 - [Source Name] — [Full URL]
 - [Source Name] — [Full URL]
@@ -154,11 +149,6 @@ Sources:
 Section 2 — How do scammers do it?
 ────────────────────────────────────────────────
 [Summary paragraph — explain the exact tactics, step-by-step mechanics and methods scammers use.]
-
-Key findings:
-- [Finding 1]
-- [Finding 2]
-- [Finding 3]
 
 Sources:
 - [Source Name] — [Full URL]
@@ -169,11 +159,6 @@ Section 3 — How to spot the scam?
 ────────────────────────────────────────────────
 [Summary paragraph — describe the specific red flags and warning signs a potential victim would notice.]
 
-Key findings:
-- [Finding 1]
-- [Finding 2]
-- [Finding 3]
-
 Sources:
 - [Source Name] — [Full URL]
 - [Source Name] — [Full URL]
@@ -183,11 +168,6 @@ Section 4 — How to behave when targeted?
 ────────────────────────────────────────────────
 [Summary paragraph — practical, calm, step-by-step advice on exactly what someone should do if they receive one of these communications.]
 
-Key findings:
-- [Finding 1]
-- [Finding 2]
-- [Finding 3]
-
 Sources:
 - [Source Name] — [Full URL]
 - [Source Name] — [Full URL]
@@ -196,11 +176,6 @@ Sources:
 Section 5 — How to report the scam?
 ────────────────────────────────────────────────
 [Summary paragraph — name the specific official bodies a victim should report to. Cover at minimum: USA, UK, and Australia.]
-
-Key findings:
-- [Body name, country, reporting URL or number]
-- [Body name, country, reporting URL or number]
-- [Body name, country, reporting URL or number]
 
 Sources:
 - [Source Name] — [Full URL]
