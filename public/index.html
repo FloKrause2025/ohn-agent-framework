@@ -732,8 +732,9 @@
 
     try {
       if (currentAgent.id === 'googly') {
-        // Googly uses SSE streaming — we read events as they arrive
         await streamGoogly(text);
+      } else if (currentAgent.id === 'scripty') {
+        await streamScripty(text, null, null);
       } else {
         const res = await fetch('/api/chat', {
           method: 'POST',
@@ -759,8 +760,8 @@
       setLoading(false);
     }
 
-    // For Googly, setLoading(false) is called inside streamGoogly when the stream ends
-    if (currentAgent.id !== 'googly') {
+    // For SSE agents, setLoading(false) is called inside the stream handler
+    if (currentAgent.id !== 'googly' && currentAgent.id !== 'scripty') {
       setLoading(false);
     }
   }
@@ -913,6 +914,103 @@
       clearTimeout(timeoutId);
       const msg = err?.name === 'AbortError'
         ? 'Timed out after 90s — the report is taking too long. Please try again.'
+        : (err?.message ?? 'Network error');
+      stepsEl.innerHTML = `<div style="color:#f87171;">❌ ${escHtml(msg)}</div>`;
+    }
+
+    setLoading(false);
+  }
+
+  // ── Scripty SSE Streaming ──────────────────────────────────────────────────
+  async function streamScripty(message, topic, researchReport) {
+    const msgs = document.getElementById('messages');
+    const progressDiv = document.createElement('div');
+    progressDiv.className = 'msg agent';
+    progressDiv.id = 'scripty-progress';
+    progressDiv.innerHTML = `
+      <div class="msg-meta">Scripty 🎬</div>
+      <div class="bubble">
+        <div id="scripty-steps" style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+          <div style="color:var(--text-muted);">Connecting…</div>
+        </div>
+      </div>`;
+    msgs.appendChild(progressDiv);
+    scrollBottom();
+
+    const stepsEl = document.getElementById('scripty-steps');
+    const stepIcons = { writing_core: '✍️', core_complete: '✅', writing_hooks: '🎣', done: '🎬' };
+
+    function addStep(icon, message) {
+      const el = document.createElement('div');
+      el.style.color = 'var(--text)';
+      el.innerHTML = `${icon} ${escHtml(message)}`;
+      stepsEl.appendChild(el);
+      scrollBottom();
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+    try {
+      const body = { agentId: 'scripty', message, topic: topic ?? message, researchReport: researchReport ?? undefined };
+      const response = await fetch('/api/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Server error' }));
+        stepsEl.innerHTML = `<div style="color:#f87171;">Error: ${escHtml(err.error ?? 'Unknown error')}</div>`;
+        setLoading(false);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const processLines = (lines) => {
+        for (const line of lines) {
+          if (!line.trim() || !line.startsWith('data: ')) continue;
+          let event;
+          try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (event.type === 'start') {
+            stepsEl.innerHTML = '';
+          } else if (event.type === 'progress') {
+            const icon = stepIcons[event.step] ?? '⚙️';
+            addStep(icon, event.message);
+          } else if (event.type === 'complete') {
+            progressDiv.remove();
+            hideTyping();
+            renderScriptyResult(event.result, event.logs ?? []);
+          } else if (event.type === 'error') {
+            stepsEl.innerHTML = `<div style="color:#f87171;">❌ ${escHtml(event.error ?? 'Unknown error')}</div>`;
+            hideTyping();
+          }
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (value) {
+          buffer += decoder.decode(value, { stream: !done });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          processLines(lines);
+        }
+        if (done) {
+          if (buffer.trim()) processLines([buffer]);
+          break;
+        }
+      }
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const msg = err?.name === 'AbortError'
+        ? 'Timed out after 90s. Please try again.'
         : (err?.message ?? 'Network error');
       stepsEl.innerHTML = `<div style="color:#f87171;">❌ ${escHtml(msg)}</div>`;
     }
@@ -1212,6 +1310,111 @@
                 ${tier3Sources.length > 0 ? `<div style="font-size:10px;font-weight:700;color:#f87171;text-transform:uppercase;letter-spacing:0.8px;">🔴 Tier 3 — Rejected</div>
                 <div style="display:flex;flex-direction:column;gap:8px;">${tier3Sources.map(sourceCard).join('')}</div>` : ''}
               </div>
+            </div>
+          </div>
+
+          <!-- Generate Script button -->
+          ${extractedFacts ? `
+          <div style="padding-top:4px;">
+            <button onclick="handleGenerateScript(${JSON.stringify(topic)}, ${JSON.stringify(extractedFacts ?? '')})"
+              style="background:#166534;border:1px solid #22c55e;color:#d1fae5;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;">
+              🎬 Generate Script with Scripty →
+            </button>
+          </div>` : ''}
+
+          <!-- Pipeline logs -->
+          ${buildLogsHtml(logs)}
+        </div>
+      </div>`;
+
+    msgs.appendChild(div);
+    scrollBottom();
+  }
+
+  function handleGenerateScript(topic, researchReport) {
+    // Switch to Scripty agent
+    const scriptyAgent = agents.find(a => a.id === 'scripty');
+    if (scriptyAgent) selectAgent(scriptyAgent);
+
+    // Show user message and kick off the stream
+    addUserMessage(`Generate script for: ${topic}`);
+    showTyping();
+    setLoading(true);
+    streamScripty(topic, topic, researchReport);
+  }
+
+  // ── Scripty Result Renderer ────────────────────────────────────────────────
+  function renderScriptyResult(result, logs = []) {
+    const msgs = document.getElementById('messages');
+    const div  = document.createElement('div');
+    div.className = 'msg agent';
+
+    const { topic, hookOptions = [], selectedHook, preHookNote, context, tension, pivot, payoff, fullScript, wordCount, captionHook } = result;
+
+    const sectionBlock = (label, color, text) => `
+      <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--radius);padding:12px 14px;">
+        <div style="font-size:9px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">${label}</div>
+        <div style="font-size:13px;color:var(--text);line-height:1.7;">${escHtml(text)}</div>
+      </div>`;
+
+    const hookCards = hookOptions.map((h, i) => `
+      <div style="background:var(--surface2);border:1px solid ${h === selectedHook ? '#a855f7' : 'var(--border)'};border-left:3px solid ${h === selectedHook ? '#a855f7' : 'var(--border)'};border-radius:var(--radius);padding:10px 12px;font-size:13px;color:var(--text);">
+        ${h === selectedHook ? '<span style="font-size:9px;font-weight:700;color:#a855f7;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:4px;">★ Selected hook</span>' : `<span style="font-size:9px;color:var(--text-muted);display:block;margin-bottom:4px;">Option ${i + 1}</span>`}
+        "${escHtml(h)}"
+      </div>`).join('');
+
+    div.innerHTML = `
+      <div class="msg-meta">Scripty 🎬</div>
+      <div class="bubble">
+        <div class="result-wrap">
+
+          <!-- Topic -->
+          <div style="background:#120a24;border:1px solid #3b1f6e;border-left:3px solid #a855f7;border-radius:var(--radius);padding:12px 16px;">
+            <div style="font-size:10px;font-weight:700;color:#c084fc;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px;">🎬 Script — ${escHtml(topic)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">${wordCount} words · ${hookOptions.length} hook options</div>
+          </div>
+
+          <!-- Selected hook (hero) -->
+          <div style="background:#120a24;border:1px solid #a855f7;border-radius:var(--radius);padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;color:#c084fc;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px;">🎣 Selected Hook</div>
+            <div style="font-size:15px;font-weight:700;color:#f3e8ff;line-height:1.5;">"${escHtml(selectedHook)}"</div>
+            ${preHookNote ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);font-style:italic;">${escHtml(preHookNote)}</div>` : ''}
+          </div>
+
+          <!-- Core sections -->
+          ${sectionBlock('Context', '#60a5fa', context)}
+          ${sectionBlock('Tension', '#f87171', tension)}
+          ${sectionBlock('Pivot',   '#fbbf24', pivot)}
+          ${sectionBlock('Payoff',  '#34d399', payoff)}
+
+          <!-- Caption hook -->
+          ${captionHook ? `
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;">
+            <div style="font-size:9px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px;">📝 Caption Hook</div>
+            <div style="font-size:13px;color:var(--text);font-style:italic;">"${escHtml(captionHook)}"</div>
+          </div>` : ''}
+
+          <!-- All hook options -->
+          <div>
+            <button class="excluded-toggle" onclick="toggleExcluded(this)">
+              <span>🎣 All ${hookOptions.length} hook options</span>
+              <span>▼</span>
+            </button>
+            <div class="excluded-list">
+              <div style="display:flex;flex-direction:column;gap:8px;padding-top:10px;">
+                ${hookCards}
+              </div>
+            </div>
+          </div>
+
+          <!-- Full combined script -->
+          <div>
+            <button class="excluded-toggle" onclick="toggleExcluded(this)">
+              <span>📋 Full combined script</span>
+              <span>▼</span>
+            </button>
+            <div class="excluded-list">
+              <div style="padding-top:10px;font-size:13px;color:var(--text);line-height:1.8;white-space:pre-wrap;">${escHtml(fullScript)}</div>
             </div>
           </div>
 

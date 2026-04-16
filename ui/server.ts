@@ -14,6 +14,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { runResearchy } from "../agents/researchy/index.js";
 import type { RedditPost, LLMInvokeParams } from "../agents/researchy/index.js";
 import { runGoogly } from "../agents/googly/index.js";
+import { runScripty } from "../agents/scripty/index.js";
 // RedditPost used for mapping below; LLMInvokeParams used by makeInvokeLLM
 import { fetchRedditScamPosts } from "../skills/reddit-scraping/index.js";
 import type { RedditScrapingConfig } from "../skills/reddit-scraping/index.js";
@@ -146,7 +147,7 @@ app.get("/api/agents", (_req, res) => {
   res.json([
     { id: "researchy",      name: "Researchy",       emoji: "👀", status: "live",        description: "Scam Researcher — filters r/Scams for OHN content topics" },
     { id: "googly",         name: "Googly",           emoji: "🔍", status: "live",        description: "Deep Research Specialist — investigates approved topics" },
-    { id: "scripty",        name: "Scripty",          emoji: "🎬", status: "coming_soon", description: "Script Writer — writes 60-second video scripts" },
+    { id: "scripty",        name: "Scripty",          emoji: "🎬", status: "live",        description: "Script Writer — writes 60-second video scripts" },
     { id: "quality-gate",   name: "Quality Gate",     emoji: "✅", status: "coming_soon", description: "QA Reviewer — checks scripts before approval" },
     { id: "instistati",     name: "InstiStati",       emoji: "📸", status: "coming_soon", description: "Instagram Analytics — organic performance reports" },
     { id: "statsy",         name: "Statsy",           emoji: "📊", status: "coming_soon", description: "Meta Ads Analytics — paid media performance" },
@@ -238,10 +239,15 @@ app.post("/api/chat", async (req, res) => {
 // Prevents Vercel from closing the connection mid-way through the long LLM call.
 
 app.post("/api/stream", async (req, res) => {
-  const { agentId, message } = req.body as { agentId: string; message: string };
+  const { agentId, message, topic, researchReport } = req.body as {
+    agentId: string;
+    message: string;
+    topic?: string;
+    researchReport?: string;
+  };
 
-  if (agentId !== "googly") {
-    res.status(400).json({ error: "Only googly is supported on /api/stream" });
+  if (!["googly", "scripty"].includes(agentId)) {
+    res.status(400).json({ error: "Only googly and scripty are supported on /api/stream" });
     return;
   }
 
@@ -267,45 +273,81 @@ app.post("/api/stream", async (req, res) => {
 
   const logger = new RequestLogger();
 
-  try {
-    const serperApiKey = process.env.SERPER_API_KEY ?? "";
-    if (!serperApiKey) {
-      send("error", { error: "SERPER_API_KEY is not set." });
-      res.end();
-      return;
+  // ── Googly ────────────────────────────────────────────────────────────────
+  if (agentId === "googly") {
+    try {
+      const serperApiKey = process.env.SERPER_API_KEY ?? "";
+      if (!serperApiKey) {
+        send("error", { error: "SERPER_API_KEY is not set." });
+        res.end();
+        return;
+      }
+
+      logger.info("server", `SSE stream started — agentId: googly`);
+      send("start", { message: "Googly is starting…" });
+
+      const result = await runGoogly(
+        { rawText: message, scannedAt: new Date().toISOString() },
+        {
+          invokeLLM: makeInvokeLLM(),
+          serperApiKey,
+          logger,
+          onProgress: (event) => {
+            send("progress", { step: event.step, message: event.message, data: event.data ?? null });
+          },
+        },
+      );
+
+      // Strip raw scraped text before sending — it can be 3500 chars and break SSE line parsing
+      const resultForClient = {
+        ...result,
+        scrapedPage: result.scrapedPage
+          ? { url: result.scrapedPage.url, title: result.scrapedPage.title, tier: result.scrapedPage.tier }
+          : undefined,
+      };
+
+      logger.info("server", "SSE stream complete");
+      send("complete", { agentId, agentType: "googly", result: resultForClient, logs: logger.entries });
+    } catch (err) {
+      console.error(`[googly SSE] Error:`, err);
+      send("error", { error: err instanceof Error ? err.message : String(err), logs: logger.entries });
     }
 
-    logger.info("server", `SSE stream started — agentId: ${agentId}`);
-    send("start", { message: "Googly is starting…" });
-
-    const result = await runGoogly(
-      { rawText: message, scannedAt: new Date().toISOString() },
-      {
-        invokeLLM: makeInvokeLLM(),
-        serperApiKey,
-        logger,
-        onProgress: (event) => {
-          send("progress", { step: event.step, message: event.message, data: event.data ?? null });
-        },
-      },
-    );
-
-    // Strip raw scraped text before sending — it can be 3500 chars and break SSE line parsing
-    const resultForClient = {
-      ...result,
-      scrapedPage: result.scrapedPage
-        ? { url: result.scrapedPage.url, title: result.scrapedPage.title, tier: result.scrapedPage.tier }
-        : undefined,
-    };
-
-    logger.info("server", "SSE stream complete");
-    send("complete", { agentId, agentType: "googly", result: resultForClient, logs: logger.entries });
-  } catch (err) {
-    console.error(`[googly SSE] Error:`, err);
-    send("error", { error: err instanceof Error ? err.message : String(err), logs: logger.entries });
+    res.end();
+    return;
   }
 
-  res.end();
+  // ── Scripty ───────────────────────────────────────────────────────────────
+  if (agentId === "scripty") {
+    try {
+      logger.info("server", `SSE stream started — agentId: scripty`);
+      send("start", { message: "Scripty is starting…" });
+
+      // topic comes from the explicit field (Googly handoff) or falls back to message
+      const scriptyTopic = topic ?? message;
+      const scriptyReport = researchReport;
+
+      const result = await runScripty(
+        { topic: scriptyTopic, researchReport: scriptyReport },
+        {
+          invokeLLM: makeInvokeLLM(),
+          logger,
+          onProgress: (event) => {
+            send("progress", { step: event.step, message: event.message, data: event.data ?? null });
+          },
+        },
+      );
+
+      logger.info("server", "SSE stream complete");
+      send("complete", { agentId, agentType: "scripty", result, logs: logger.entries });
+    } catch (err) {
+      console.error(`[scripty SSE] Error:`, err);
+      send("error", { error: err instanceof Error ? err.message : String(err), logs: logger.entries });
+    }
+
+    res.end();
+    return;
+  }
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
