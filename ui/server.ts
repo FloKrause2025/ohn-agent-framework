@@ -299,7 +299,7 @@ app.post("/api/stream", async (req, res) => {
     };
 
     logger.info("server", "SSE stream complete");
-    send("complete", { agentId, type: "googly", result: resultForClient, logs: logger.entries });
+    send("complete", { agentId, agentType: "googly", result: resultForClient, logs: logger.entries });
   } catch (err) {
     console.error(`[googly SSE] Error:`, err);
     send("error", { error: err instanceof Error ? err.message : String(err), logs: logger.entries });
