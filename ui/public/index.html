@@ -807,12 +807,18 @@
       }
     }
 
+    // Abort after 90s — Vercel max is 60s, so this guarantees a clean error message
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+
     try {
       const response = await fetch('/api/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agentId: 'googly', message: text }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({ error: 'Server error' }));
@@ -857,7 +863,11 @@
         }
       }
     } catch (err) {
-      stepsEl.innerHTML = `<div style="color:#f87171;">❌ ${escHtml(err?.message ?? 'Network error')}</div>`;
+      clearTimeout(timeoutId);
+      const msg = err?.name === 'AbortError'
+        ? 'Timed out after 90s — the report is taking too long. Please try again.'
+        : (err?.message ?? 'Network error');
+      stepsEl.innerHTML = `<div style="color:#f87171;">❌ ${escHtml(msg)}</div>`;
     }
 
     setLoading(false);

@@ -347,31 +347,29 @@ export async function runGoogly(
 
   log?.info("googly", `Starting research — topic: "${topic}"`);
 
-  // 10 queries covering all 5 mandatory topic areas (2 per area)
+  // 6 queries — one per topic area + one authority-site query
+  // Kept tight to stay well within Vercel's 60s limit
   const queries = [
     // Area 1: What the scam is
     `${topic} scam what is it how does it work`,
-    `${topic} scam overview definition site:ftc.gov OR site:fbi.gov OR site:cisa.gov OR site:ncsc.gov.uk OR site:actionfraud.police.uk`,
-    // Area 2: How scammers execute it
-    `how do scammers carry out ${topic} tactics methods`,
-    `${topic} scam step by step how criminals do it`,
+    // Area 2: How scammers execute it — target gov/cybersec sites directly
+    `${topic} scam tactics methods site:ftc.gov OR site:fbi.gov OR site:ncsc.gov.uk OR site:norton.com OR site:kaspersky.com`,
     // Area 3: How to spot it
     `how to spot ${topic} scam warning signs red flags`,
-    `${topic} scam warning signs site:norton.com OR site:kaspersky.com OR site:malwarebytes.com OR site:aarp.org`,
     // Area 4: What to do when targeted
-    `what to do if you receive ${topic} scam practical advice`,
-    `${topic} scam victim advice site:ftc.gov OR site:consumer.ftc.gov OR site:ncsc.gov.uk OR site:cyber.gov.au`,
+    `what to do if you receive ${topic} scam victim advice`,
     // Area 5: How to report it
-    `how to report ${topic} scam USA UK Australia official`,
-    `report ${topic} scam site:ftc.gov OR site:ic3.gov OR site:actionfraud.police.uk OR site:scamwatch.gov.au OR site:cyber.gov.au`,
+    `report ${topic} scam site:ftc.gov OR site:ic3.gov OR site:actionfraud.police.uk OR site:scamwatch.gov.au`,
+    // Broad authority sweep
+    `${topic} scam site:ftc.gov OR site:fbi.gov OR site:cisa.gov OR site:aarp.org OR site:consumer.ftc.gov`,
   ];
 
   log?.info("googly", `Running ${queries.length} Serper queries`);
   onProgress?.({ step: "searching", message: `Running ${queries.length} targeted searches for "${topic}"…` });
 
-  // Run all queries in parallel
+  // Run all queries in parallel (3 results each — enough for dedup, fast enough for Vercel)
   const rawResults = await Promise.all(
-    queries.map(q => serperSearch(q, serperApiKey, 5))
+    queries.map(q => serperSearch(q, serperApiKey, 3))
   );
 
   // Deduplicate and tier-rank
@@ -402,31 +400,32 @@ export async function runGoogly(
   log?.debug("googly", "Tier 1 sources", tier1.map(r => ({ title: r.title, url: r.url })));
   log?.debug("googly", "Tier 2 sources", tier2.map(r => ({ title: r.title, url: r.url })));
 
-  // Build sources text for LLM (top 25 sources; Tier 3 included for context but labelled ❌)
-  const sourcesText = sorted.slice(0, 25).map((r, idx) =>
-    `[${idx + 1}] [${r.tier}] ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet}`
+  // Top 12 sources only (Tier 1 + Tier 2 preferred; Tier 3 excluded from LLM context)
+  const acceptedSources = [...tier1, ...tier2].slice(0, 12);
+  const sourcesText = acceptedSources.map((r, idx) =>
+    `[${idx + 1}] [${r.tier}] ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet.slice(0, 200)}`
   ).join("\n\n");
 
   const angleContext = angle ? `\nCONTENT ANGLE: ${angle}` : "";
   const today = new Date().toISOString().split("T")[0];
 
   log?.info("googly", `Calling LLM with ${Math.min(sorted.length, 25)} sources (claude-haiku-4-5-20251001)`);
-  onProgress?.({ step: "writing_report", message: `Writing 7-section research report using ${Math.min(tier1.length + tier2.length, 25)} verified sources…` });
+  onProgress?.({ step: "writing_report", message: `Writing 7-section research report using ${acceptedSources.length} verified sources…` });
   log?.debug("googly", "Sources text sent to LLM", { sourcesText });
 
   const userMessage = `SCAM TOPIC: ${topic}${angleContext}
 TODAY'S DATE: ${today}
-SCANNED AT: ${scannedAt}
 TARGET AUDIENCE: Parents and grandparents aged 50-75, USA, Canada, UK, Australia
 
-SEARCH RESULTS (${sorted.length} unique sources found — ${tier1.length} Tier 1, ${tier2.length} Tier 2, ${tier3.length} Tier 3 [reject these]):
+SOURCES (${acceptedSources.length} verified — Tier 1 + Tier 2 only):
 
 ${sourcesText}
 
-Now follow Steps 1-3 from your instructions. Write the complete 7-section GOOGLY RESEARCH REPORT. Do NOT output JSON. Use the exact section template. All 7 sections are mandatory.`;
+Write the complete 7-section GOOGLY RESEARCH REPORT. Use the exact section template. All 7 sections are mandatory. Be concise — aim for 1 paragraph + 3 bullet points per section.`;
 
   const response = await invokeLLM({
     model: "claude-haiku-4-5-20251001",
+    max_tokens: 2000,
     messages: [
       { role: "system", content: GOOGLY_SYSTEM_PROMPT },
       { role: "user",   content: userMessage },
@@ -443,7 +442,7 @@ Now follow Steps 1-3 from your instructions. Write the complete 7-section GOOGLY
     topic,
     topicReasoning,
     report,
-    sources: sorted,
+    sources: sorted,          // all sources for UI display
     tier1Count: tier1.length,
     tier2Count: tier2.length,
     tier3Count: tier3.length,

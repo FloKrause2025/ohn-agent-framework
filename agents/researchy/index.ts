@@ -23,6 +23,8 @@ export interface LLMMessage {
 export interface LLMInvokeParams {
   model?: string;
   messages: LLMMessage[];
+  /** Override the default max_tokens (4096). Use to cap long outputs and speed up responses. */
+  max_tokens?: number;
   response_format?: {
     type: "json_schema";
     json_schema: {

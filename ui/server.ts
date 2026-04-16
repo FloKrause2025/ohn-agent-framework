@@ -54,9 +54,10 @@ function makeInvokeLLM() {
 
     // When thinking is enabled: max_tokens must exceed budget_tokens.
     // Keep total under ~8k to avoid Vercel's 60s function timeout.
+    // Callers can pass max_tokens to cap output and speed up responses.
     const maxTokens = params.thinking
       ? params.thinking.budget_tokens + 4096
-      : 4096;
+      : (params.max_tokens ?? 4096);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const thinkingParam = params.thinking
