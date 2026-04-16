@@ -290,8 +290,16 @@ app.post("/api/stream", async (req, res) => {
       },
     );
 
+    // Strip raw scraped text before sending — it can be 3500 chars and break SSE line parsing
+    const resultForClient = {
+      ...result,
+      scrapedPage: result.scrapedPage
+        ? { url: result.scrapedPage.url, title: result.scrapedPage.title, tier: result.scrapedPage.tier }
+        : undefined,
+    };
+
     logger.info("server", "SSE stream complete");
-    send("complete", { agentId, type: "googly", result, logs: logger.entries });
+    send("complete", { agentId, type: "googly", result: resultForClient, logs: logger.entries });
   } catch (err) {
     console.error(`[googly SSE] Error:`, err);
     send("error", { error: err instanceof Error ? err.message : String(err), logs: logger.entries });
