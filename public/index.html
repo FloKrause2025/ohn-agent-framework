@@ -604,9 +604,9 @@
     </div>
     <div class="sidebar-section">
       <div class="sidebar-section-title">Analytics</div>
-      <button class="agent-btn disabled"    data-agent="instistati">
+      <button class="agent-btn live"         data-agent="instistati"  onclick="selectAgent(this)">
         <span class="emoji">📸</span><span class="name">InstiStati</span>
-        <span class="status-tag">Soon</span>
+        <span class="dot"></span>
       </button>
       <button class="agent-btn disabled"    data-agent="statsy">
         <span class="emoji">📊</span><span class="name">Statsy</span>
@@ -717,6 +717,7 @@
       researchy: '👋 Hey! I\'m Researchy. I\'ll scan our sample Reddit posts from r/Scams and filter them down to the best topics for OHN content.\n\nType anything (e.g. "scan" or "find new topics") to run the filter.',
       googly: '🔍 Hey! I\'m Googly. Paste a Reddit post (or describe a scam situation) and I\'ll:\n\n1. Extract the scam type from your text\n2. Run 10 targeted searches across authoritative sources\n3. Rank by authority: Gov/Law Enforcement → Cybersec → (reject blogs/Reddit)\n4. Write a full 7-section research report\n\nPaste the Reddit post text below:',
       scripty: '🎬 Hey! I\'m Scripty. Give me a scam topic and I\'ll write a 60-second OHN video script.\n\nFor best results, run Googly first and use the "Generate Script" button — that passes the full research report.\n\nOr just type a topic below and I\'ll write from my knowledge:\n(e.g. "Amazon brushing scam" or "SIM swapping")',
+      instistati: '📸 Hey! I\'m InstiStati. I display your Instagram organic performance data.\n\nType anything (e.g. "show performance" or "load data") to pull the latest stats.\n\nUse the 🔄 Refresh button to force a fresh pull from the Instagram API.',
     };
     return messages[agent.id] ?? `${agent.emoji} ${agent.name} is coming soon.`;
   }
@@ -738,6 +739,8 @@
         await streamGoogly(text);
       } else if (currentAgent.id === 'scripty') {
         await streamScripty(text, null, null);
+      } else if (currentAgent.id === 'instistati') {
+        await loadInstiStati(false);
       } else {
         const res = await fetch('/api/chat', {
           method: 'POST',
@@ -764,7 +767,7 @@
     }
 
     // For SSE agents, setLoading(false) is called inside the stream handler
-    if (currentAgent.id !== 'googly' && currentAgent.id !== 'scripty') {
+    if (currentAgent.id !== 'googly' && currentAgent.id !== 'scripty' && currentAgent.id !== 'instistati') {
       setLoading(false);
     }
   }
@@ -1350,6 +1353,211 @@
     showTyping();
     setLoading(true);
     streamScripty(topic, topic, report);
+  }
+
+  // ── InstiStati ─────────────────────────────────────────────────────────────
+
+  async function loadInstiStati(forceRefresh) {
+    showTyping();
+    setLoading(true);
+    try {
+      const url    = forceRefresh ? '/api/instistati/pull' : '/api/instistati/latest';
+      const method = forceRefresh ? 'POST' : 'GET';
+      const res    = await fetch(url, { method });
+      const json   = await res.json();
+      hideTyping();
+      if (!res.ok || json.error) {
+        addAgentMessage(json.error ?? 'Failed to load Instagram data.', 'error');
+      } else {
+        renderInstiStatiResult(json.data ?? json, json.nextPullAt);
+      }
+    } catch (err) {
+      hideTyping();
+      addAgentMessage('Network error loading Instagram data: ' + err.message, 'error');
+    }
+    setLoading(false);
+  }
+
+  function bm(val, thresholds) {
+    // thresholds: [star, green, yellow] — returns colour string
+    if (val === null || val === undefined) return '#94a3b8';
+    if (val >= thresholds[0]) return '#fbbf24'; // ⭐
+    if (val >= thresholds[1]) return '#34d399'; // 🟢
+    if (val >= thresholds[2]) return '#facc15'; // 🟡
+    return '#f87171';                           // 🔴
+  }
+
+  function bmLabel(val, thresholds) {
+    if (val === null || val === undefined) return 'N/A';
+    if (val >= thresholds[0]) return '⭐';
+    if (val >= thresholds[1]) return '🟢';
+    if (val >= thresholds[2]) return '🟡';
+    return '🔴';
+  }
+
+  function renderInstiStatiResult(data, nextPullAt) {
+    const msgs = document.getElementById('messages');
+    const div  = document.createElement('div');
+    div.className = 'msg agent';
+
+    const a          = data.accountSummary;
+    const posts      = data.posts ?? [];
+    const audience   = data.audienceData ?? {};
+    const bestTimes  = data.bestPostingTimes?.topSlots ?? [];
+    const pulledAt   = new Date(data.pulledAt);
+    const nextPull   = nextPullAt ? new Date(nextPullAt) : null;
+    const minsAgo    = Math.round((Date.now() - pulledAt.getTime()) / 60000);
+    const isDemo     = data.isDemo;
+
+    const fmt = n => typeof n === 'number' ? n.toLocaleString() : 'N/A';
+    const pct = n => n !== null && n !== undefined ? n + '%' : 'N/A';
+
+    // Summary stat card
+    const statCard = (label, value, sub) => `
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;flex:1;min-width:120px;">
+        <div style="font-size:9px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px;">${label}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--text);">${value}</div>
+        ${sub ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${sub}</div>` : ''}
+      </div>`;
+
+    // Post row for the table
+    const postRow = (p, i) => {
+      const shareRate = p.plays > 0 ? ((p.shares / p.plays) * 100).toFixed(1) : null;
+      const saveRate  = p.plays > 0 ? ((p.saves  / p.plays) * 100).toFixed(1) : null;
+      const typeTag   = p.mediaType === 'REEL' ? '🎬' : p.mediaType === 'IMAGE' ? '🖼' : '🎠';
+      const viral     = p.isViral ? '🔥' : '';
+      return `
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 10px;font-size:12px;color:var(--text);max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${i+1}. ${viral}${escHtml(p.captionLine.slice(0,55))}</td>
+          <td style="padding:8px 6px;font-size:11px;color:var(--text-muted);text-align:center;">${typeTag}</td>
+          <td style="padding:8px 6px;font-size:12px;color:var(--text);text-align:right;">${fmt(p.plays || p.reach)}</td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;" title="3-sec retention">
+            <span style="color:${bm(p.threeSecRetentionRate,[75,65,50])}">${pct(p.threeSecRetentionRate)}</span>
+          </td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;" title="avg watch time %">
+            <span style="color:${bm(p.avgWatchTimePct,[70,50,30])}">${pct(p.avgWatchTimePct)}</span>
+          </td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;" title="share rate">
+            <span style="color:${bm(parseFloat(shareRate),[8,4,1])}">${shareRate ? shareRate+'%' : '—'}</span>
+          </td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;" title="save rate">
+            <span style="color:${bm(parseFloat(saveRate),[5,3,1])}">${saveRate ? saveRate+'%' : '—'}</span>
+          </td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;">
+            <span style="color:${bm(p.engagementRate,[8,5,2])}">${p.engagementRate}%</span>
+          </td>
+        </tr>`;
+    };
+
+    div.innerHTML = `
+      <div class="msg-meta">InstiStati 📸</div>
+      <div class="bubble">
+        <div class="result-wrap">
+
+          <!-- Header -->
+          <div style="background:#0a0f1a;border:1px solid #1e3a5f;border-left:3px solid #f472b6;border-radius:var(--radius);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div>
+              <div style="font-size:10px;font-weight:700;color:#f472b6;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:3px;">
+                📸 Instagram Performance ${isDemo ? '<span style="background:#422006;color:#fbbf24;font-size:9px;padding:2px 6px;border-radius:3px;margin-left:6px;">DEMO DATA</span>' : '<span style="background:#052e16;color:#4ade80;font-size:9px;padding:2px 6px;border-radius:3px;margin-left:6px;">LIVE</span>'}
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);">
+                Last updated: ${pulledAt.toLocaleString()} (${minsAgo}m ago)
+                ${nextPull ? ` · Next auto-refresh: ${nextPull.toLocaleTimeString()}` : ''}
+              </div>
+            </div>
+            <button onclick="loadInstiStati(true)" style="background:#1e3a5f;border:1px solid #3b82f6;color:#93c5fd;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">
+              🔄 Refresh
+            </button>
+          </div>
+
+          <!-- Account summary cards -->
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${statCard('Followers',      fmt(a.followers),                   a.followersChange ? `+${a.followersChange}% vs prev` : null)}
+            ${statCard('Reach (30d)',    fmt(a.reach),                       a.reachChange ? `+${a.reachChange}% vs prev` : null)}
+            ${statCard('Engagement',     pct(a.avgEngagementRate),           bmLabel(a.avgEngagementRate,[8,5,2]))}
+            ${statCard('Profile Views',  fmt(a.profileViews),                null)}
+            ${statCard('Website Clicks', fmt(a.websiteClicks),               null)}
+            ${statCard('Posts tracked',  posts.length + ' posts',            data.dateRange.replace(/_/g,' '))}
+          </div>
+
+          <!-- Posts table -->
+          <div>
+            <button class="excluded-toggle" onclick="toggleExcluded(this)">
+              <span>📊 ${posts.length} posts — click to expand</span>
+              <span>▼</span>
+            </button>
+            <div class="excluded-list">
+              <div style="overflow-x:auto;padding-top:10px;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                  <thead>
+                    <tr style="border-bottom:1px solid var(--border);">
+                      <th style="padding:6px 10px;text-align:left;font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;">Caption</th>
+                      <th style="padding:6px 6px;font-size:9px;color:var(--text-muted);">Type</th>
+                      <th style="padding:6px 6px;font-size:9px;color:var(--text-muted);text-align:right;">Views</th>
+                      <th style="padding:6px 6px;font-size:9px;color:var(--text-muted);">3-sec</th>
+                      <th style="padding:6px 6px;font-size:9px;color:var(--text-muted);">Watch%</th>
+                      <th style="padding:6px 6px;font-size:9px;color:var(--text-muted);">Share</th>
+                      <th style="padding:6px 6px;font-size:9px;color:var(--text-muted);">Save</th>
+                      <th style="padding:6px 6px;font-size:9px;color:var(--text-muted);">ER</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${posts.map((p, i) => postRow(p, i)).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Audience -->
+          ${audience.genderSplit ? `
+          <div>
+            <button class="excluded-toggle" onclick="toggleExcluded(this)">
+              <span>👥 Audience breakdown</span>
+              <span>▼</span>
+            </button>
+            <div class="excluded-list">
+              <div style="display:flex;flex-wrap:wrap;gap:16px;padding-top:12px;">
+                <div style="flex:1;min-width:160px;">
+                  <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">Gender split</div>
+                  <div style="font-size:13px;color:var(--text);">♀ Female: <strong>${audience.genderSplit.female}%</strong></div>
+                  <div style="font-size:13px;color:var(--text);">♂ Male: <strong>${audience.genderSplit.male}%</strong></div>
+                </div>
+                <div style="flex:1;min-width:160px;">
+                  <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">Top countries</div>
+                  ${(audience.topCountries ?? []).map(c => `<div style="font-size:12px;color:var(--text);display:flex;justify-content:space-between;"><span>${escHtml(c.country)}</span><span style="color:var(--text-muted)">${c.percentage}%</span></div>`).join('')}
+                </div>
+                <div style="flex:1;min-width:160px;">
+                  <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">Age groups (top)</div>
+                  ${(audience.ageGender ?? []).slice(0,5).map(ag => `<div style="font-size:12px;color:var(--text);display:flex;justify-content:space-between;"><span>${escHtml(ag.label)}</span><span style="color:var(--text-muted)">${ag.percentage}%</span></div>`).join('')}
+                </div>
+              </div>
+            </div>
+          </div>` : ''}
+
+          <!-- Best posting times -->
+          ${bestTimes.length > 0 ? `
+          <div>
+            <button class="excluded-toggle" onclick="toggleExcluded(this)">
+              <span>🕐 Best posting times</span>
+              <span>▼</span>
+            </button>
+            <div class="excluded-list">
+              <div style="display:flex;flex-wrap:wrap;gap:8px;padding-top:10px;">
+                ${bestTimes.map(t => `
+                  <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:12px;color:var(--text);">
+                    <strong>${escHtml(t.day)}</strong> · ${escHtml(t.time)}
+                    <span style="margin-left:8px;font-size:10px;color:#4ade80;">${t.score}/100</span>
+                  </div>`).join('')}
+              </div>
+            </div>
+          </div>` : ''}
+
+        </div>
+      </div>`;
+
+    msgs.appendChild(div);
+    scrollBottom();
   }
 
   // ── Scripty Result Renderer ────────────────────────────────────────────────

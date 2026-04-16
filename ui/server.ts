@@ -18,6 +18,7 @@ import { runScripty } from "../agents/scripty/index.js";
 // RedditPost used for mapping below; LLMInvokeParams used by makeInvokeLLM
 import { fetchRedditScamPosts } from "../skills/reddit-scraping/index.js";
 import type { RedditScrapingConfig } from "../skills/reddit-scraping/index.js";
+import { runIgPull, getLatestIgPull, isCacheStale, getLastPullTime } from "../skills/instagram-analytics/index.js";
 import { RequestLogger } from "./logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -149,7 +150,7 @@ app.get("/api/agents", (_req, res) => {
     { id: "googly",         name: "Googly",           emoji: "🔍", status: "live",        description: "Deep Research Specialist — investigates approved topics" },
     { id: "scripty",        name: "Scripty",          emoji: "🎬", status: "live",        description: "Script Writer — writes 60-second video scripts" },
     { id: "quality-gate",   name: "Quality Gate",     emoji: "✅", status: "coming_soon", description: "QA Reviewer — checks scripts before approval" },
-    { id: "instistati",     name: "InstiStati",       emoji: "📸", status: "coming_soon", description: "Instagram Analytics — organic performance reports" },
+    { id: "instistati",     name: "InstiStati",       emoji: "📸", status: "live",        description: "Instagram Analytics — organic performance reports" },
     { id: "statsy",         name: "Statsy",           emoji: "📊", status: "coming_soon", description: "Meta Ads Analytics — paid media performance" },
     { id: "addy",           name: "Addy",             emoji: "🎯", status: "coming_soon", description: "Ad Analyzer — angles, winners and stops" },
     { id: "paid-marketing", name: "PaidMarketing",    emoji: "💰", status: "coming_soon", description: "Paid Media Strategist — full campaign recommendations" },
@@ -350,6 +351,32 @@ app.post("/api/stream", async (req, res) => {
   }
 });
 
+// ─── InstiStati endpoints ─────────────────────────────────────────────────────
+
+// GET /api/instistati/latest — returns cached data (triggers pull if empty/stale)
+app.get("/api/instistati/latest", async (_req, res) => {
+  try {
+    let data = getLatestIgPull();
+    if (!data || isCacheStale()) {
+      data = await runIgPull();
+    }
+    const nextPullAt = getLastPullTime() + 2 * 60 * 60 * 1000;
+    res.json({ data, nextPullAt, isStale: isCacheStale() });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// POST /api/instistati/pull — manual refresh
+app.post("/api/instistati/pull", async (_req, res) => {
+  try {
+    const data = await runIgPull();
+    res.json({ data, pulledAt: data.pulledAt });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 // On Vercel the app is exported as a serverless handler — no listen() needed.
@@ -358,9 +385,15 @@ if (!process.env.VERCEL) {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`\n🚀  OHN Agent UI running at http://localhost:${PORT}`);
     console.log(`    Anthropic API key: ${API_KEY.slice(0, 12)}...`);
-    console.log(`    Agents live: researchy`);
+    console.log(`    Agents live: researchy, googly, scripty, instistati`);
     console.log(`    Press Ctrl+C to stop\n`);
   });
+
+  // Seed InstiStati cache on startup, then auto-refresh every 2 hours
+  runIgPull().catch(err => console.error("[InstiStati] Startup pull failed:", err));
+  setInterval(() => {
+    runIgPull().catch(err => console.error("[InstiStati] Auto-refresh failed:", err));
+  }, 2 * 60 * 60 * 1000);
 }
 
 // Vercel serverless handler
