@@ -688,17 +688,31 @@
     document.getElementById('agentName').textContent  = agent.name;
     document.getElementById('agentDesc').textContent  = agent.description;
 
-    // Clear messages and show agent welcome
+    // Clear messages and show agent welcome (InstiStati skips — dashboard loads instead)
     const msgs = document.getElementById('messages');
     msgs.innerHTML = '';
-    addAgentMessage(getWelcomeMessage(agent), 'text');
+    if (agentId !== 'instistati') {
+      addAgentMessage(getWelcomeMessage(agent), 'text');
+    }
 
-    // Enable input
+    // Enable/disable input — InstiStati is display-only, no chat needed
     const input = document.getElementById('msgInput');
-    input.disabled  = false;
-    input.placeholder = `Message ${agent.name}…`;
-    document.getElementById('sendBtn').disabled = false;
-    input.focus();
+    const sendBtn = document.getElementById('sendBtn');
+    if (agentId === 'instistati') {
+      input.disabled  = true;
+      input.placeholder = 'InstiStati is display-only — use the Refresh button';
+      sendBtn.disabled = true;
+    } else {
+      input.disabled  = false;
+      input.placeholder = `Message ${agent.name}…`;
+      sendBtn.disabled = false;
+      input.focus();
+    }
+
+    // InstiStati auto-loads its dashboard on selection
+    if (agentId === 'instistati') {
+      loadInstiStati(false);
+    }
   }
 
   function quickSelect(agentId, message) {
