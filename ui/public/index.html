@@ -1157,10 +1157,20 @@
         </div>`;
     };
 
-    // Format extracted facts — convert **bold** markdown to <strong>
-    const formatFacts = (text) => escHtml(text)
-      .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text);">$1</strong>')
-      .replace(/\n/g, '<br>');
+    // Format research report — handle section dividers, headers, bold, and bullets
+    const formatFacts = (text) => {
+      const escaped = escHtml(text);
+      return escaped
+        // Section dividers (═══ and ────) → styled HR
+        .replace(/[═]{3,}/g, '<hr style="border:none;border-top:2px solid #166534;margin:12px 0;">')
+        .replace(/[─]{3,}/g, '<hr style="border:none;border-top:1px solid #1f4a2a;margin:10px 0;">')
+        // Section headers (e.g. "Section 1 — What is the scam?")
+        .replace(/(Section \d+ —[^\n]+)/g, '<strong style="font-size:14px;color:#4ade80;">$1</strong>')
+        // Bold markdown **text**
+        .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text);">$1</strong>')
+        // Newlines → line breaks
+        .replace(/\n/g, '<br>');
+    };
 
     div.innerHTML = `
       <div class="msg-meta">Googly 🔍</div>
@@ -1175,17 +1185,16 @@
             <div style="font-size:12px;color:var(--text-muted);">${escHtml(topicReasoning)}</div>
           </div>` : ''}
 
-          <!-- Extracted facts — the main output -->
+          <!-- Research report — the main output -->
           ${extractedFacts ? `
           <div style="background:#0a1a0a;border:1px solid #166534;border-left:3px solid #22c55e;border-radius:var(--radius);padding:14px 16px;">
             <div style="font-size:10px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">
-              📄 Key facts — scraped from ${escHtml(scrapedPage?.tier ?? '')} source
-              <a href="${escHtml(scrapedPage?.url ?? '')}" target="_blank" style="color:#60a5fa;font-weight:400;margin-left:8px;font-size:10px;">${escHtml(scrapedPage?.title ?? '')}</a>
+              📋 Googly Research Report
             </div>
             <div style="font-size:13px;color:#d1fae5;line-height:1.8;">${formatFacts(extractedFacts)}</div>
           </div>` : `
           <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;font-size:12px;color:var(--text-muted);">
-            ⚠️ Could not scrape a page — the site may have blocked the request. See sources below.
+            ⚠️ Could not scrape any pages — sites may have blocked requests. See sources below.
           </div>`}
 
           <!-- Stats + sources toggle -->
