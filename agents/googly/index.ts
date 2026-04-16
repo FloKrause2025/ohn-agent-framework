@@ -55,7 +55,7 @@ export interface GooglyResult {
 }
 
 export interface GooglyProgressEvent {
-  step: "extracting_topic" | "searching" | "scraping" | "generating_report" | "done";
+  step: "extracting_topic" | "searching" | "filtering" | "scraping" | "generating_report" | "done";
   message: string;
   data?: Record<string, unknown>;
 }
@@ -312,6 +312,78 @@ async function scrapePage(url: string, maxChars = 500, log?: RequestLogger): Pro
   }
 }
 
+// ─── Step 3b: Relevance Filter ────────────────────────────────────────────────
+
+async function filterRelevantSources(
+  topic: string,
+  sources: GooglySource[],
+  invokeLLM: GooglyDeps["invokeLLM"],
+  log?: RequestLogger,
+): Promise<GooglySource[]> {
+  if (sources.length === 0) return sources;
+
+  log?.info("googly", `Filtering ${sources.length} sources for relevance to "${topic}"`);
+
+  const sourcesText = sources.map((s, i) =>
+    `[${i}] ${s.title}\n${s.snippet}`
+  ).join("\n\n");
+
+  const response = await invokeLLM({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 300,
+    messages: [
+      {
+        role: "system",
+        content: `You filter search results for relevance to a specific scam topic.
+Given a scam topic and a numbered list of web pages (title + description), return ONLY the indices of pages that are directly relevant to that specific scam type.
+
+A page IS relevant if it:
+- Specifically mentions or explains that scam type
+- Gives advice on spotting, avoiding, or reporting that exact scam
+- Covers a closely related variant of that scam
+
+A page is NOT relevant if it:
+- Is about a completely different scam (e.g. gift card scam when the topic is brushing)
+- Is a generic complaint form or unrelated government page
+- Only tangentially mentions the topic
+
+Return JSON only: {"relevant":[0,3,5,...]}`,
+      },
+      {
+        role: "user",
+        content: `SCAM TOPIC: ${topic}\n\nSOURCES:\n${sourcesText}`,
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "relevance_filter",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            relevant: { type: "array", items: { type: "number" } },
+          },
+          required: ["relevant"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  try {
+    const parsed = JSON.parse(response.choices[0]?.message?.content ?? "{}") as { relevant: number[] };
+    const filtered = parsed.relevant
+      .filter(i => typeof i === "number" && i >= 0 && i < sources.length)
+      .map(i => sources[i]);
+    log?.info("googly", `Relevance filter: kept ${filtered.length} of ${sources.length} sources`);
+    return filtered;
+  } catch {
+    log?.warn("googly", "Relevance filter parse failed — keeping all sources");
+    return sources;
+  }
+}
+
 // ─── Step 4: Full Report Generation ──────────────────────────────────────────
 
 async function generateReport(
@@ -438,15 +510,33 @@ export async function runGoogly(
     }
   }
 
-  const tier1 = allSources.filter(s => s.tier === "TIER 1 ✅");
-  const tier2 = allSources.filter(s => s.tier === "TIER 2 ✅");
-  const tier3 = allSources.filter(s => s.tier === "TIER 3 ❌");
+  const allTier1 = allSources.filter(s => s.tier === "TIER 1 ✅");
+  const allTier2 = allSources.filter(s => s.tier === "TIER 2 ✅");
+  const allTier3 = allSources.filter(s => s.tier === "TIER 3 ❌");
+
+  log?.info("googly", `Raw sources — Tier 1: ${allTier1.length}, Tier 2: ${allTier2.length}, Tier 3: ${allTier3.length}`);
+
+  // ── Step 2b: Filter Tier 1+2 sources for relevance to the topic ─────────
+  onProgress?.({ step: "filtering", message: `Filtering ${allTier1.length + allTier2.length} sources for relevance to "${topic}"…` });
+
+  const [relevantTier1, relevantTier2] = await Promise.all([
+    filterRelevantSources(topic, allTier1, invokeLLM, log),
+    filterRelevantSources(topic, allTier2, invokeLLM, log),
+  ]);
+
+  const tier1 = relevantTier1;
+  const tier2 = relevantTier2;
+  const tier3 = allTier3; // Tier 3 always rejected — no need to filter
   const sorted = [...tier1, ...tier2, ...tier3];
 
-  log?.info("googly", `Sources — Tier 1: ${tier1.length}, Tier 2: ${tier2.length}, Tier 3: ${tier3.length}`);
-  log?.debug("googly", "All sources", sorted.map(s => ({ title: s.title, url: s.url, tier: s.tier })));
+  log?.info("googly", `After filter — Tier 1: ${tier1.length}, Tier 2: ${tier2.length}, Tier 3: ${tier3.length}`);
+  onProgress?.({
+    step: "filtering",
+    message: `Kept ${tier1.length} gov + ${tier2.length} cybersec/news sources (filtered out irrelevant)`,
+    data: { tier1: tier1.length, tier2: tier2.length, tier3: tier3.length },
+  });
 
-  // ── Step 3: Scrape top 10 Tier 1+2 pages in parallel ────────────────────
+  // ── Step 3: Scrape top 10 relevant Tier 1+2 pages in parallel ───────────
   const pagesToScrape = [...tier1, ...tier2].slice(0, 10);
   onProgress?.({ step: "scraping", message: `Scraping ${pagesToScrape.length} trusted sources in parallel…` });
 
