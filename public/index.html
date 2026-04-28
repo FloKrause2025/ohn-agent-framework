@@ -1279,7 +1279,9 @@
     setTimeout(() => {
       const googlyBtn = document.querySelector('[data-agent="googly"]');
       if (googlyBtn) selectAgent(googlyBtn);
-      const text = `${topic.originalTitle}\n\n${topic.summary}`;
+      // Include bodyPreview (victim's own words) so Googly extracts a sharper search topic
+      const bodySection = topic.bodyPreview ? `\n\nReddit post body:\n${topic.bodyPreview}` : '';
+      const text = `${topic.originalTitle}\n\n${topic.summary}${bodySection}`;
       addUserMessage(`Research: ${topic.originalTitle}`);
       showTyping();
       setLoading(true);

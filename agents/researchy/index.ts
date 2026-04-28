@@ -66,6 +66,8 @@ export interface ShortlistedTopic {
   postedAt: string;
   redditUrl: string;
   relatedPosts: string[];
+  /** Original Reddit post body — attached server-side after LLM call, not part of schema */
+  bodyPreview?: string;
 }
 
 export interface ExcludedPost {

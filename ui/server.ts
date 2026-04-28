@@ -203,6 +203,14 @@ app.post("/api/chat", async (req, res) => {
         { invokeLLM: makeInvokeLLM(), logger }
       );
 
+      // Enrich each shortlisted topic with the original Reddit bodyPreview.
+      // Googly uses raw post text for sharper topic extraction (exact URLs, phone numbers, etc).
+      const postByUrl = new Map(fetched.posts.map(p => [p.url, p]));
+      result.shortlist = result.shortlist.map(t => ({
+        ...t,
+        bodyPreview: postByUrl.get(t.redditUrl)?.bodyPreview ?? "",
+      }));
+
       logger.info("server", "Request complete");
       res.json({
         agentId,
