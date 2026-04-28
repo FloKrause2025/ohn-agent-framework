@@ -662,8 +662,9 @@
   let currentAgent = null;
   let agents = [];
   let isLoading = false;
-  let lastGooglyResult  = { topic: '', report: '' }; // safe store for Generate Script button
-  let lastScriptyResult = null;                       // safe store for hook selection
+  let lastGooglyResult      = { topic: '', report: '' }; // safe store for Generate Script button
+  let lastScriptyResult     = null;                       // safe store for hook selection
+  let lastResearchyShortlist = [];                        // safe store for approve/reject handlers
 
   // ── Init ───────────────────────────────────────────────────────────────────
   fetch('/api/agents')
@@ -1153,12 +1154,15 @@
     }
     const sorted = [...shortlist].sort((a, b) => ageMinutes(a.postedAt) - ageMinutes(b.postedAt));
 
-    // Build shortlist cards — simple: title, summary, date, link
+    // Store for approve/reject handlers (safe integer index in onclick)
+    lastResearchyShortlist = sorted;
+
+    // Build shortlist cards with approve / reject actions
     const topicCards = sorted.map((t, i) => {
       const dupeNote = t.relatedPosts?.length > 0
         ? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted);">Also seen in ${t.relatedPosts.length} similar post${t.relatedPosts.length > 1 ? 's' : ''}</div>` : '';
       return `
-        <div class="topic-card" style="border-left-color:#3b82f6;">
+        <div id="researchy-card-${i}" class="topic-card" style="border-left-color:#3b82f6;transition:opacity 0.3s,border-left-color 0.3s;">
           <div class="topic-header">
             <div class="topic-rank">${i + 1}</div>
             <div class="topic-name" style="font-size:13px;">${escHtml(t.originalTitle)}</div>
@@ -1168,7 +1172,18 @@
             <span class="topic-stat">🕐 ${escHtml(t.postedAt)}</span>
           </div>
           ${dupeNote}
-          <div class="topic-link" style="margin-top:8px;"><a href="${escHtml(t.redditUrl)}" target="_blank">View on Reddit →</a></div>
+          <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <a href="${escHtml(t.redditUrl)}" target="_blank" style="font-size:11px;color:#60a5fa;text-decoration:none;">View on Reddit →</a>
+            <div style="flex:1;"></div>
+            <button id="researchy-reject-${i}" onclick="rejectResearchyPost(${i})"
+              style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:5px 12px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">
+              ✕ Reject
+            </button>
+            <button id="researchy-approve-${i}" onclick="approveResearchyPost(${i})"
+              style="background:#14532d;border:1px solid #22c55e;color:#86efac;padding:5px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">
+              Research with Googly →
+            </button>
+          </div>
         </div>`;
     }).join('');
 
@@ -1244,6 +1259,41 @@
         });
       });
     }
+  }
+
+  // ── Researchy post actions ─────────────────────────────────────────────────
+
+  function approveResearchyPost(index) {
+    const topic = lastResearchyShortlist[index];
+    if (!topic) return;
+
+    // Mark card approved — green border, buttons locked
+    const card       = document.getElementById(`researchy-card-${index}`);
+    const approveBtn = document.getElementById(`researchy-approve-${index}`);
+    const rejectBtn  = document.getElementById(`researchy-reject-${index}`);
+    if (card)       card.style.borderLeftColor = '#22c55e';
+    if (approveBtn) { approveBtn.textContent = '✓ Sent to Googly'; approveBtn.disabled = true; approveBtn.style.opacity = '0.6'; }
+    if (rejectBtn)  { rejectBtn.disabled = true; rejectBtn.style.opacity = '0.3'; }
+
+    // Brief pause so user sees confirmation, then switch to Googly
+    setTimeout(() => {
+      const googlyBtn = document.querySelector('[data-agent="googly"]');
+      if (googlyBtn) selectAgent(googlyBtn);
+      const text = `${topic.originalTitle}\n\n${topic.summary}`;
+      addUserMessage(`Research: ${topic.originalTitle}`);
+      showTyping();
+      setLoading(true);
+      streamGoogly(text);
+    }, 400);
+  }
+
+  function rejectResearchyPost(index) {
+    const card       = document.getElementById(`researchy-card-${index}`);
+    const approveBtn = document.getElementById(`researchy-approve-${index}`);
+    const rejectBtn  = document.getElementById(`researchy-reject-${index}`);
+    if (card)       { card.style.opacity = '0.35'; card.style.borderLeftColor = '#475569'; }
+    if (approveBtn) { approveBtn.disabled = true; approveBtn.style.opacity = '0'; }
+    if (rejectBtn)  { rejectBtn.textContent = '✕ Rejected'; rejectBtn.disabled = true; rejectBtn.style.opacity = '0.4'; }
   }
 
   function renderGooglyResult(result, logs = []) {
