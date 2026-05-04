@@ -146,14 +146,10 @@ if (!process.env.VERCEL) {
 // List of available agents and their status
 app.get("/api/agents", (_req, res) => {
   res.json([
-    { id: "researchy",      name: "Researchy",       emoji: "👀", status: "live",        description: "Scam Researcher — filters r/Scams for OHN content topics" },
-    { id: "googly",         name: "Googly",           emoji: "🔍", status: "live",        description: "Deep Research Specialist — investigates approved topics" },
-    { id: "scripty",        name: "Scripty",          emoji: "🎬", status: "live",        description: "Script Writer — writes 60-second video scripts" },
-    { id: "quality-gate",   name: "Quality Gate",     emoji: "✅", status: "coming_soon", description: "QA Reviewer — checks scripts before approval" },
-    { id: "instistati",     name: "InstiStati",       emoji: "📸", status: "live",        description: "Instagram Analytics — organic performance reports" },
-    { id: "statsy",         name: "Statsy",           emoji: "📊", status: "coming_soon", description: "Meta Ads Analytics — paid media performance" },
-    { id: "addy",           name: "Addy",             emoji: "🎯", status: "coming_soon", description: "Ad Analyzer — angles, winners and stops" },
-    { id: "paid-marketing", name: "PaidMarketing",    emoji: "💰", status: "coming_soon", description: "Paid Media Strategist — full campaign recommendations" },
+    { id: "researchy",  name: "Researchy",  emoji: "👀", status: "live", description: "Scam Researcher — filters r/Scams for OHN content topics" },
+    { id: "googly",     name: "Googly",     emoji: "🔍", status: "live", description: "Deep Research Specialist — investigates approved topics" },
+    { id: "scripty",    name: "Scripty",    emoji: "🎬", status: "live", description: "Script Writer — writes 60-second video scripts" },
+    { id: "instistati", name: "InstiStati", emoji: "📸", status: "live", description: "Instagram Analytics — organic performance reports" },
   ]);
 });
 
